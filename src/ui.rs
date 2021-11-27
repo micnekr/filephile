@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, io, ops::RangeBounds};
+use std::{borrow::Borrow, io};
 
 use tui::{
     layout::{Constraint, Direction::Vertical},
@@ -7,6 +7,11 @@ use tui::{
 };
 
 use crate::{directory_tree::FileSelection, AppState};
+
+pub struct StyleSet {
+    pub file: Style,
+    pub dir: Style,
+}
 
 pub(crate) fn ui<B: tui::backend::Backend>(
     f: &mut tui::Frame<B>,
@@ -51,7 +56,7 @@ pub(crate) fn ui<B: tui::backend::Backend>(
             .title(dir_path_string)
             .borders(Borders::ALL);
 
-        let mut dir_items = app_state
+        let dir_items = app_state
             .current_dir
             .list_files(&app_state.file_tree_node_sorter)?;
 
@@ -77,10 +82,22 @@ pub(crate) fn ui<B: tui::backend::Backend>(
                         String::from("<Could not get file name>")
                     }
                 };
-                let mut out = ListItem::new(file_name.clone());
-                if el.0 == file_cursor_index {
-                    out = app_state.file_cursor.update_styles(out);
-                }
+                let out = ListItem::new(file_name.clone());
+
+                // apply styles
+
+                // different styles depending on whether it is selected or not and whether it si a dir or not
+                let styles_set = if el.0 == file_cursor_index {
+                    app_state.file_cursor.get_styles()
+                } else {
+                    &app_state.default_style_set
+                };
+                let out = out.style(if el.1.is_dir() {
+                    styles_set.dir.clone()
+                } else {
+                    styles_set.file.clone()
+                });
+
                 out
             })
             .collect();

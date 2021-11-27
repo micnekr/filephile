@@ -9,6 +9,8 @@ use std::fs::{read_dir, DirEntry, ReadDir};
 use tui::style::Style;
 use tui::widgets::ListItem;
 
+use crate::ui::StyleSet;
+
 pub(crate) struct FileTreeNode {
     // Make it impossible to modify it from the outside
     pub(self) path_buf: PathBuf,
@@ -19,10 +21,17 @@ pub(crate) struct FileTreeNode {
 impl FileTreeNode {
     pub fn new(path: PathBuf) -> io::Result<FileTreeNode> {
         let path = path.canonicalize()?;
+        let mut simple_name = path.file_name().map(OsString::from);
+        if path.is_dir() {
+            if let Some(mut el) = simple_name {
+                el.push("/");
+                simple_name = Some(el);
+            }
+        }
         Ok(FileTreeNode {
             is_dir: path.is_dir(),
             path_buf: path.to_path_buf(),
-            simple_name: path.file_name().map(OsString::from),
+            simple_name,
         })
     }
 
@@ -70,9 +79,9 @@ impl FileTreeNodeSorter {
                 let is_b_dir = b.is_dir();
                 if is_a_dir ^ is_b_dir {
                     if is_a_dir {
-                        Ordering::Greater
-                    } else {
                         Ordering::Less
+                    } else {
+                        Ordering::Greater
                     }
                 } else {
                     a.get_path().cmp(b.get_path())
@@ -84,25 +93,25 @@ impl FileTreeNodeSorter {
 
 pub(crate) struct FileSelectionMultiple {
     pub selected_files: BTreeSet<OsString>,
-    pub style: Style,
+    pub styles: StyleSet,
 }
 
 pub(crate) struct FileSelectionSingle {
     pub selected_file: Option<OsString>,
-    pub style: Style,
+    pub styles: StyleSet,
 }
 
 pub(crate) trait FileSelection {
     fn is_selected(&self, node: &FileTreeNode) -> bool;
-    fn update_styles<'a>(&self, list_item: ListItem<'a>) -> ListItem<'a>;
+    fn get_styles(&self) -> &StyleSet;
 }
 
 impl FileSelection for FileSelectionMultiple {
     fn is_selected(&self, node: &FileTreeNode) -> bool {
         self.selected_files.contains(node.get_path().as_os_str())
     }
-    fn update_styles<'a>(&self, list_item: ListItem<'a>) -> ListItem<'a> {
-        list_item.style(self.style.clone())
+    fn get_styles(&self) -> &StyleSet {
+        &self.styles
     }
 }
 
@@ -114,8 +123,8 @@ impl FileSelection for FileSelectionSingle {
             false
         }
     }
-    fn update_styles<'a>(&self, list_item: ListItem<'a>) -> ListItem<'a> {
-        list_item.style(self.style.clone())
+    fn get_styles(&self) -> &StyleSet {
+        &self.styles
     }
 }
 

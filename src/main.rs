@@ -15,6 +15,8 @@ use crossterm::{
 };
 use directory_tree::{FileSelection, FileTreeNodeSorter};
 use tui::style::Style;
+use tui::symbols::braille::BLANK;
+use ui::StyleSet;
 
 use crate::directory_tree::{FileSelectionSingle, FileTreeNode};
 
@@ -30,6 +32,8 @@ struct AppState {
 
     file_cursor: FileSelectionSingle,
     file_tree_node_sorter: FileTreeNodeSorter,
+
+    default_style_set: StyleSet,
 
     is_urgent_update: bool,
 }
@@ -63,11 +67,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         error_message: "".to_owned(),
         file_cursor: FileSelectionSingle {
             selected_file: None,
-            style: Style::default()
-                .bg(tui::style::Color::White)
-                .fg(tui::style::Color::Black),
+            styles: StyleSet {
+                file: Style::default()
+                    .bg(tui::style::Color::White)
+                    .fg(tui::style::Color::Black),
+                dir: Style::default()
+                    .bg(tui::style::Color::White)
+                    .fg(tui::style::Color::LightBlue),
+            },
         },
         file_tree_node_sorter: FileTreeNodeSorter::NORMAL,
+
+        default_style_set: StyleSet {
+            file: Style::default()
+                .bg(tui::style::Color::Black)
+                .fg(tui::style::Color::White),
+            dir: Style::default()
+                .bg(tui::style::Color::Black)
+                .fg(tui::style::Color::LightBlue),
+        },
 
         verb_key_sequence: String::from(""),
         modifier_key_sequence: String::from(""),

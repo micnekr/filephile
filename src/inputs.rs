@@ -3,8 +3,6 @@ use std::io;
 
 use crate::{directory_tree::FileTreeNode, AppMode, AppState};
 
-const first_key_sequence_characters: [char; 1] = ['a'];
-
 #[derive(PartialEq)]
 enum KeySequenceState {
     COMPLETE,
@@ -31,7 +29,7 @@ pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Resu
             app_state.modifier_key_sequence.push(character);
 
             // we can not add a movement after a verb, so fail in that case
-            if app_state.verb_key_sequence.is_empty() {
+            if !app_state.verb_key_sequence.is_empty() {
                 clear_key_sequences(app_state);
             }
             return Ok(());
@@ -73,8 +71,22 @@ pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Resu
                 }
             }
             crossterm::event::KeyCode::Char('G') => {
-                change_file_cursor_index(app_state, |_, items| items.len() - 1)?;
-                KeySequenceState::COMPLETE
+                // if there is a specified line, go to it
+                if !app_state.modifier_key_sequence.is_empty() {
+                    change_file_cursor_index(app_state, |i, items| {
+                        if modifier > items.len() {
+                            i
+                        } else {
+                            modifier - 1 // to convert it into an index
+                        }
+                    })?;
+                    // TODO: return KeySequenceState::INVALID when needed
+                    // TODO: maybe show an error message, e.g. INVALID(String) ?
+                    KeySequenceState::COMPLETE
+                } else {
+                    change_file_cursor_index(app_state, |_, items| items.len() - 1)?;
+                    KeySequenceState::COMPLETE
+                }
             }
             // It does not make sense, so skip it
             _ => KeySequenceState::INCOMPLETE,
