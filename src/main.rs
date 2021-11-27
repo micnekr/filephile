@@ -1,7 +1,8 @@
 mod directory_tree;
-mod logic;
+mod inputs;
 mod ui;
 
+use std::collections::BTreeSet;
 use std::env;
 use std::{
     io,
@@ -12,20 +13,38 @@ use crossterm::{
     event::{EnableMouseCapture, KeyEvent},
     terminal::EnterAlternateScreen,
 };
+use directory_tree::{FileSelection, FileTreeNodeSorter};
+use tui::style::Style;
 
-use crate::directory_tree::FileTreeNode;
+use crate::directory_tree::{FileSelectionSingle, FileTreeNode};
 
 struct AppState {
     app_mode: AppMode,
+
     current_dir: directory_tree::FileTreeNode,
     opened_file: Option<String>,
     error_message: String,
+
+    verb_key_sequence: Vec<char>,
+    modifier_key_sequence: Vec<char>,
+
+    file_cursor: FileSelectionSingle,
+    file_tree_node_sorter: FileTreeNodeSorter,
+
+    is_urgent_update: bool,
+}
+
+impl AppState {
+    pub fn set_err(&mut self, err: io::Error) {
+        self.error_message = err.to_string();
+        self.is_urgent_update = true;
+    }
 }
 
 #[derive(PartialEq)]
 enum AppMode {
     NORMAL,
-    VISUAL,
+    // VISUAL,
     QUITTING,
 }
 
@@ -39,15 +58,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app_state = AppState {
         app_mode: AppMode::NORMAL,
-        current_dir: FileTreeNode::new(env::current_dir()?.as_path())?,
-        error_message: "".to_owned(),
+        current_dir: FileTreeNode::new(env::current_dir()?.to_path_buf())?,
         opened_file: None,
+        error_message: "".to_owned(),
+        file_cursor: FileSelectionSingle {
+            selected_file: None,
+            style: Style::default()
+                .bg(tui::style::Color::White)
+                .fg(tui::style::Color::Black),
+        },
+        file_tree_node_sorter: FileTreeNodeSorter::NORMAL,
+
+        verb_key_sequence: vec![],
+        modifier_key_sequence: vec![],
+
+        is_urgent_update: false,
     };
+
     // create app and run it
     let res = run_loop(
         &mut terminal,
         ui::ui,
-        logic::handle_inputs,
+        inputs::handle_inputs,
         &mut app_state,
         Duration::from_millis(250),
     );
@@ -83,9 +115,14 @@ fn run_loop<
         if app_state.app_mode == AppMode::QUITTING {
             return Ok(());
         }
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
+        let timeout = if app_state.is_urgent_update {
+            app_state.is_urgent_update = false;
+            Duration::from_secs(0)
+        } else {
+            tick_rate
+                .checked_sub(last_tick.elapsed())
+                .unwrap_or_else(|| Duration::from_secs(0))
+        };
         if crossterm::event::poll(timeout)? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 handle_inputs(key, app_state)?;
@@ -95,7 +132,7 @@ fn run_loop<
         // TODO: do not redraw as frequently
         terminal.draw(|f| {
             if let Err(err) = ui(f, app_state) {
-                app_state.error_message = err.to_string();
+                app_state.set_err(err);
             }
         })?;
 

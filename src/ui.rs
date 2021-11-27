@@ -1,11 +1,12 @@
-use std::{borrow::Borrow, io};
+use std::{borrow::Borrow, io, ops::RangeBounds};
 
 use tui::{
     layout::{Constraint, Direction::Vertical},
+    style::{Modifier, Style},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
-use crate::AppState;
+use crate::{directory_tree::FileSelection, AppState};
 
 pub(crate) fn ui<B: tui::backend::Backend>(
     f: &mut tui::Frame<B>,
@@ -13,7 +14,7 @@ pub(crate) fn ui<B: tui::backend::Backend>(
 ) -> io::Result<()> {
     let dir_path_string = app_state
         .current_dir
-        .get_dir_path()
+        .get_path()
         .as_os_str()
         .to_string_lossy()
         .into_owned();
@@ -50,15 +51,40 @@ pub(crate) fn ui<B: tui::backend::Backend>(
             .title(dir_path_string)
             .borders(Borders::ALL);
 
-        let dir_items = app_state
+        let mut dir_items = app_state
             .current_dir
-            .list_files()?
+            .list_files(&app_state.file_tree_node_sorter)?;
+
+        let file_cursor_index = app_state
+            .file_cursor
+            .get_file_cursor_index(&dir_items)
+            .unwrap_or_else(|| {
+                // if the cursor can not be placed:
+                app_state.is_urgent_update = true;
+                // TODO: make sure this does not break with empty dirs
+                app_state.file_cursor.selected_file =
+                    Some(dir_items.first().unwrap().get_path().as_os_str().to_owned());
+                0
+            });
+        let dir_items: Vec<_> = dir_items
             .iter()
-            .map(|e| {
-                let e = e.to_string_lossy().into_owned();
-                ListItem::new(e)
+            .enumerate()
+            .map(|el| {
+                let file_name = match el.1.get_simple_name() {
+                    Ok(simple_name) => simple_name.to_string_lossy().into_owned(),
+                    Err(err) => {
+                        app_state.set_err(err);
+                        String::from("<Could not get file name>")
+                    }
+                };
+                let mut out = ListItem::new(file_name.clone());
+                if el.0 == file_cursor_index {
+                    out = app_state.file_cursor.update_styles(out);
+                }
+                out
             })
-            .collect::<Vec<_>>();
+            .collect();
+
         let list = List::new(dir_items).block(block);
 
         f.render_widget(list, chunks[0]);
