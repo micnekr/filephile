@@ -25,8 +25,8 @@ struct AppState {
     opened_file: Option<String>,
     error_message: String,
 
-    verb_key_sequence: Vec<char>,
-    modifier_key_sequence: Vec<char>,
+    verb_key_sequence: String,
+    modifier_key_sequence: String,
 
     file_cursor: FileSelectionSingle,
     file_tree_node_sorter: FileTreeNodeSorter,
@@ -69,8 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         file_tree_node_sorter: FileTreeNodeSorter::NORMAL,
 
-        verb_key_sequence: vec![],
-        modifier_key_sequence: vec![],
+        verb_key_sequence: String::from(""),
+        modifier_key_sequence: String::from(""),
 
         is_urgent_update: false,
     };
