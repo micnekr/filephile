@@ -107,19 +107,9 @@ pub(crate) fn ui<B: tui::backend::Backend>(
         f.render_widget(list, chunks[0]);
 
         let block = Block::default()
-            .title(app_state.opened_file.clone().unwrap_or("".to_owned()))
+            // .title(app_state.opened_file.clone().unwrap_or("".to_owned()))
             .borders(Borders::ALL);
         f.render_widget(block, chunks[1]);
     }
     Ok(())
 }
-
-// fn unwrap_or_print<T>(error: io::Result<T>, app_state: &mut AppState) -> Option<T> {
-//     match error {
-//         Err(err) => {
-//             app_state.error_message = format!("{}", err);
-//             None
-//         }
-//         Ok(out) => Some(out),
-//     }
-// }

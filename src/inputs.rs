@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use std::io;
+use std::{io, path::PathBuf};
 
 use crate::{directory_tree::FileTreeNode, AppMode, AppState};
 
@@ -11,6 +11,8 @@ enum KeySequenceState {
 }
 
 pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Result<()> {
+    // clear all the errors?
+    app_state.error_message = String::from("");
     // we do not need urgent updates because it all updates on input events automatically
     // if let crossterm::event::KeyCode::Char(character) = key.code {
     //     if first_key_sequence_characters.contains(&character) {
@@ -57,6 +59,30 @@ pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Resu
                     (items.len() + i - modifier).rem_euclid(items.len())
                 })?;
                 KeySequenceState::COMPLETE
+            }
+            crossterm::event::KeyCode::Char('h') => {
+                let current_path = app_state.current_dir.get_path();
+                let next_path = current_path.parent().unwrap_or(&current_path);
+                app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
+                KeySequenceState::COMPLETE
+            }
+            crossterm::event::KeyCode::Char('l') => {
+                let selected_file_tree_node = app_state
+                    .file_cursor
+                    .selected_file
+                    .as_ref()
+                    .map(|el| FileTreeNode::new(PathBuf::from(el)));
+                if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
+                    // if selected_file_tree_node.
+                    if selected_file_tree_node.is_dir() {
+                        app_state.current_dir = selected_file_tree_node;
+                        KeySequenceState::COMPLETE
+                    } else {
+                        KeySequenceState::INVALID
+                    }
+                } else {
+                    KeySequenceState::INVALID
+                }
             }
             crossterm::event::KeyCode::Char('g') => {
                 if app_state.verb_key_sequence.is_empty() {

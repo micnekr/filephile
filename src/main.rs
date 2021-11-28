@@ -24,7 +24,7 @@ struct AppState {
     app_mode: AppMode,
 
     current_dir: directory_tree::FileTreeNode,
-    opened_file: Option<String>,
+    // opened_file: Option<String>,
     error_message: String,
 
     verb_key_sequence: String,
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app_state = AppState {
         app_mode: AppMode::NORMAL,
         current_dir: FileTreeNode::new(env::current_dir()?.to_path_buf())?,
-        opened_file: None,
+        // opened_file: None,
         error_message: "".to_owned(),
         file_cursor: FileSelectionSingle {
             selected_file: None,
@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .fg(tui::style::Color::Black),
                 dir: Style::default()
                     .bg(tui::style::Color::White)
-                    .fg(tui::style::Color::LightBlue),
+                    .fg(tui::style::Color::Rgb(50, 50, 200)),
             },
         },
         file_tree_node_sorter: FileTreeNodeSorter::NORMAL,
@@ -91,6 +91,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         modifier_key_sequence: String::from(""),
 
         is_urgent_update: false,
+        // NOTE: this would look good for multi-selection, maybe we should use it in the future
+        // file: Style::default()
+        //     .bg(tui::style::Color::DarkGray)
+        //     .fg(tui::style::Color::White),
+        // dir: Style::default()
+        //     .bg(tui::style::Color::DarkGray)
+        //     .fg(tui::style::Color::LightBlue),
     };
 
     // create app and run it
