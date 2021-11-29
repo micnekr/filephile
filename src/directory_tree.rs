@@ -1,13 +1,10 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use std::fs::{read_dir, DirEntry, ReadDir};
-
-use tui::style::Style;
-use tui::widgets::ListItem;
+use std::fs::read_dir;
 
 use crate::ui::StyleSet;
 
@@ -19,7 +16,7 @@ pub(crate) struct FileTreeNode {
 }
 
 impl FileTreeNode {
-    pub fn new(path: PathBuf) -> io::Result<FileTreeNode> {
+    pub(crate) fn new(path: PathBuf) -> io::Result<FileTreeNode> {
         let path = path.canonicalize()?;
         let mut simple_name = path.file_name().map(OsString::from);
         if path.is_dir() {
@@ -35,7 +32,7 @@ impl FileTreeNode {
         })
     }
 
-    pub fn get_simple_name(&self) -> io::Result<OsString> {
+    pub(crate) fn get_simple_name(&self) -> io::Result<OsString> {
         if let Some(simple_name) = &self.simple_name {
             Ok(simple_name.to_owned())
         } else {
@@ -46,14 +43,14 @@ impl FileTreeNode {
         }
     }
 
-    pub fn get_path(&self) -> &PathBuf {
+    pub(crate) fn get_path(&self) -> &PathBuf {
         &self.path_buf
     }
-    pub fn is_dir(&self) -> bool {
+    pub(crate) fn is_dir(&self) -> bool {
         self.is_dir
     }
 
-    pub fn list_files(
+    pub(crate) fn list_files(
         &self,
         file_tree_node_sorter: &FileTreeNodeSorter,
     ) -> io::Result<Vec<FileTreeNode>> {
@@ -72,7 +69,7 @@ pub(crate) enum FileTreeNodeSorter {
 }
 
 impl FileTreeNodeSorter {
-    pub fn cmp(&self, a: &FileTreeNode, b: &FileTreeNode) -> Ordering {
+    pub(crate) fn cmp(&self, a: &FileTreeNode, b: &FileTreeNode) -> Ordering {
         match self {
             &FileTreeNodeSorter::NORMAL => {
                 let is_a_dir = a.is_dir();
@@ -129,7 +126,7 @@ impl FileSelection for FileSelectionSingle {
 }
 
 impl FileSelectionSingle {
-    pub fn get_file_cursor_index(&self, items: &Vec<FileTreeNode>) -> Option<usize> {
+    pub(crate) fn get_file_cursor_index(&self, items: &Vec<FileTreeNode>) -> Option<usize> {
         items.iter().position(|el| self.is_selected(&el))
     }
 }

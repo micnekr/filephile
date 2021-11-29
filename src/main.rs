@@ -1,8 +1,9 @@
+mod actions;
 mod directory_tree;
 mod inputs;
 mod ui;
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::env;
 use std::{
     io,
@@ -13,9 +14,9 @@ use crossterm::{
     event::{EnableMouseCapture, KeyEvent},
     terminal::EnterAlternateScreen,
 };
-use directory_tree::{FileSelection, FileTreeNodeSorter};
+use directory_tree::FileTreeNodeSorter;
 use tui::style::Style;
-use tui::symbols::braille::BLANK;
+
 use ui::StyleSet;
 
 use crate::directory_tree::{FileSelectionSingle, FileTreeNode};
@@ -35,11 +36,13 @@ struct AppState {
 
     default_style_set: StyleSet,
 
+    key_sequence_to_action_mapping: BTreeMap<&'static str, &'static str>,
+
     is_urgent_update: bool,
 }
 
 impl AppState {
-    pub fn set_err(&mut self, err: io::Error) {
+    pub(crate) fn set_err(&mut self, err: io::Error) {
         self.error_message = err.to_string();
         self.is_urgent_update = true;
     }
@@ -48,7 +51,7 @@ impl AppState {
 #[derive(PartialEq)]
 enum AppMode {
     NORMAL,
-    // VISUAL,
+    SEARCH,
     QUITTING,
 }
 
@@ -71,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 file: Style::default()
                     .bg(tui::style::Color::White)
                     .fg(tui::style::Color::Black),
+                // TODO: some way to show symlinks + where they are going
                 dir: Style::default()
                     .bg(tui::style::Color::White)
                     .fg(tui::style::Color::Rgb(50, 50, 200)),
@@ -90,6 +94,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         verb_key_sequence: String::from(""),
         modifier_key_sequence: String::from(""),
 
+        key_sequence_to_action_mapping: BTreeMap::new(),
+
         is_urgent_update: false,
         // NOTE: this would look good for multi-selection, maybe we should use it in the future
         // file: Style::default()
@@ -100,6 +106,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     .fg(tui::style::Color::LightBlue),
     };
 
+    app_state.key_sequence_to_action_mapping.insert("q", "quit");
+    app_state.key_sequence_to_action_mapping.insert("j", "down");
+    app_state.key_sequence_to_action_mapping.insert("k", "up");
+    app_state.key_sequence_to_action_mapping.insert("h", "left");
+    app_state
+        .key_sequence_to_action_mapping
+        .insert("l", "right");
+    app_state
+        .key_sequence_to_action_mapping
+        .insert("G", "go_to_or_go_to_bottom");
+    app_state
+        .key_sequence_to_action_mapping
+        .insert("gg", "go_to_top");
     // create app and run it
     let res = run_loop(
         &mut terminal,

@@ -2,13 +2,13 @@ use std::{borrow::Borrow, io};
 
 use tui::{
     layout::{Constraint, Direction::Vertical},
-    style::{Modifier, Style},
+    style::Style,
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
 use crate::{directory_tree::FileSelection, AppState};
 
-pub struct StyleSet {
+pub(crate) struct StyleSet {
     pub file: Style,
     pub dir: Style,
 }

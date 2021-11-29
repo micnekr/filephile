@@ -1,24 +1,16 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use std::{io, path::PathBuf};
+use std::io;
 
-use crate::{directory_tree::FileTreeNode, AppMode, AppState};
-
-#[derive(PartialEq)]
-enum KeySequenceState {
-    COMPLETE,
-    INCOMPLETE,
-    INVALID,
-}
+use crate::{
+    actions::{ActionResult, ACTION_MAP},
+    directory_tree::FileTreeNode,
+    AppState,
+};
 
 pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Result<()> {
+    // we do not need urgent updates because it all updates on input events automatically
     // clear all the errors?
     app_state.error_message = String::from("");
-    // we do not need urgent updates because it all updates on input events automatically
-    // if let crossterm::event::KeyCode::Char(character) = key.code {
-    //     if first_key_sequence_characters.contains(&character) {
-    //         app_state.last_key_sequence_char = Some(character);
-    //     }
-    // }
 
     if key.code == KeyCode::Esc {
         clear_key_sequences(app_state);
@@ -32,111 +24,50 @@ pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Resu
 
             // we can not add a movement after a verb, so fail in that case
             if !app_state.verb_key_sequence.is_empty() {
+                // TODO: maybe notify the user that this was incorrect
                 clear_key_sequences(app_state);
             }
             return Ok(());
         }
+        app_state.verb_key_sequence.push(character);
 
         // verbs
         let modifier: usize = app_state.modifier_key_sequence.parse().ok().unwrap_or(1);
-        let key_sequence_state = match key.code {
-            crossterm::event::KeyCode::Char('q') => {
-                app_state.app_mode = AppMode::QUITTING;
-                KeySequenceState::COMPLETE
-            }
-            // down
-            crossterm::event::KeyCode::Char('j') => {
-                // TODO: make sure it works in empty dirs
-                change_file_cursor_index(app_state, |i, items| {
-                    (i + modifier).rem_euclid(items.len())
-                })?;
-                KeySequenceState::COMPLETE
-            }
-            // up
-            crossterm::event::KeyCode::Char('k') => {
-                // Add the length to make sure that there is no overflow
-                change_file_cursor_index(app_state, |i, items| {
-                    (items.len() + i - modifier).rem_euclid(items.len())
-                })?;
-                KeySequenceState::COMPLETE
-            }
-            crossterm::event::KeyCode::Char('h') => {
-                let current_path = app_state.current_dir.get_path();
-                let next_path = current_path.parent().unwrap_or(&current_path);
-                app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
-                KeySequenceState::COMPLETE
-            }
-            crossterm::event::KeyCode::Char('l') => {
-                let selected_file_tree_node = app_state
-                    .file_cursor
-                    .selected_file
-                    .as_ref()
-                    .map(|el| FileTreeNode::new(PathBuf::from(el)));
-                if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
-                    // if selected_file_tree_node.
-                    if selected_file_tree_node.is_dir() {
-                        app_state.current_dir = selected_file_tree_node;
-                        KeySequenceState::COMPLETE
-                    } else {
-                        KeySequenceState::INVALID
-                    }
-                } else {
-                    KeySequenceState::INVALID
-                }
-            }
-            crossterm::event::KeyCode::Char('g') => {
-                if app_state.verb_key_sequence.is_empty() {
-                    KeySequenceState::INCOMPLETE
-                } else {
-                    if app_state.verb_key_sequence == "g" {
-                        change_file_cursor_index(app_state, |_, _| 0)?;
-                        KeySequenceState::COMPLETE
-                    } else {
-                        KeySequenceState::INVALID
-                    }
-                }
-            }
-            crossterm::event::KeyCode::Char('G') => {
-                // if there is a specified line, go to it
-                if !app_state.modifier_key_sequence.is_empty() {
-                    change_file_cursor_index(app_state, |i, items| {
-                        if modifier > items.len() {
-                            i
-                        } else {
-                            modifier - 1 // to convert it into an index
-                        }
-                    })?;
-                    // TODO: return KeySequenceState::INVALID when needed
-                    // TODO: maybe show an error message, e.g. INVALID(String) ?
-                    KeySequenceState::COMPLETE
-                } else {
-                    change_file_cursor_index(app_state, |_, items| items.len() - 1)?;
-                    KeySequenceState::COMPLETE
-                }
-            }
-            // It does not make sense, so skip it
-            _ => KeySequenceState::INCOMPLETE,
-        };
-
-        if key_sequence_state == KeySequenceState::INVALID
-            || key_sequence_state == KeySequenceState::COMPLETE
+        // check if there is an existing one
+        if let Some(command_name) = app_state
+            .key_sequence_to_action_mapping
+            .get(app_state.verb_key_sequence.as_str())
         {
+            // TODO: show an error message if that is not found
+            if let Some(command) = ACTION_MAP.get(command_name) {
+                // TODO: attach a message to ActionResult::INVALID and display it to hint at what is wrong
+                let command_result = command(app_state, modifier)?;
+            }
+
             clear_key_sequences(app_state);
         } else {
-            app_state.verb_key_sequence.push(character);
+            // no commands were found, see if it is possible that a command will be matched in the future:
+            let was_found = app_state
+                .key_sequence_to_action_mapping
+                .iter()
+                .any(|(k, _)| k.starts_with(app_state.verb_key_sequence.as_str()));
+            // TODO: if not found, tell us
+            if !was_found {
+                clear_key_sequences(app_state);
+            }
         }
     }
     Ok(())
 }
 
-fn clear_key_sequences(app_state: &mut AppState) {
+pub(crate) fn clear_key_sequences(app_state: &mut AppState) {
     app_state.modifier_key_sequence.clear();
     app_state.verb_key_sequence.clear();
 }
 
-fn change_file_cursor_index<F: Fn(usize, &Vec<FileTreeNode>) -> usize>(
+pub(crate) fn change_file_cursor_index<F: Fn(usize, &Vec<FileTreeNode>) -> usize>(
     app_state: &mut AppState,
-    modifier: F,
+    update_function: F,
 ) -> io::Result<()> {
     let dir_items = app_state
         .current_dir
@@ -147,7 +78,7 @@ fn change_file_cursor_index<F: Fn(usize, &Vec<FileTreeNode>) -> usize>(
         .get_file_cursor_index(&dir_items)
         .unwrap();
 
-    let new_file_cursor_index = modifier(file_cursor_index, &dir_items);
+    let new_file_cursor_index = update_function(file_cursor_index, &dir_items);
 
     // Update
     if new_file_cursor_index != file_cursor_index && new_file_cursor_index < dir_items.len() {
