@@ -25,7 +25,9 @@ lazy_static! {
             Box::new(|app_state, modifier| {
                 // TODO: make sure it works in empty dirs
                 change_file_cursor_index(app_state, |i, items| {
-                    (i + modifier).rem_euclid(items.len())
+                    if let Some(i) = i{
+                    Some((i + modifier).rem_euclid(items.len()))
+                    }else {None}
                 })?;
                 Ok(ActionResult::VALID)
             }),
@@ -35,7 +37,9 @@ lazy_static! {
             Box::new(|app_state, modifier|{
                 // Add the length to make sure that there is no overflow
                 change_file_cursor_index(app_state, |i, items| {
-                    (items.len() + i - modifier).rem_euclid(items.len())
+                    if let Some(i) = i{
+                    Some((items.len() + i - modifier).rem_euclid(items.len()))
+                    }else {None}
                 })?;
                 Ok(ActionResult::VALID)
             }),
@@ -77,17 +81,28 @@ lazy_static! {
                 // TODO: decouple key sequences from the app state?
                 if !app_state.modifier_key_sequence.is_empty() {
                     change_file_cursor_index(app_state, |i, items| {
-                        if modifier > items.len() {
+                        if let Some(i) = i {
+                        Some(if modifier > items.len() {
                             i
                         } else {
                             modifier - 1 // to convert it into an index
+                        })
+                        } else {
+                            None
                         }
                     })?;
                     // TODO: return KeySequenceState::INVALID when needed
                     // TODO: maybe show an error message, e.g. INVALID(String) ?
                     Ok(ActionResult::VALID)
                 } else {
-                    change_file_cursor_index(app_state, |_, items| items.len() - 1)?;
+                    change_file_cursor_index(app_state, |_, items|
+                                             {
+                                                 match items.len() {
+                                                     0 => None,
+
+                                                 _ => Some(items.len() - 1)
+                                                 }
+                                             })?;
                     Ok(ActionResult::VALID)
                 }
             }),
@@ -95,7 +110,7 @@ lazy_static! {
         m.insert(
             "go_to_top",
             Box::new(|app_state, _| {
-                change_file_cursor_index(app_state, |_, _| 0)?;
+                change_file_cursor_index(app_state, |_, _| Some(0))?;
                 Ok(ActionResult::VALID)
             }),
         );

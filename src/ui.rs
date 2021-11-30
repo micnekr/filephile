@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, io};
+use std::{borrow::Borrow, ffi::OsString, io};
 
 use tui::{
     layout::{Constraint, Direction::Vertical},
@@ -63,13 +63,19 @@ pub(crate) fn ui<B: tui::backend::Backend>(
         let file_cursor_index = app_state
             .file_cursor
             .get_file_cursor_index(&dir_items)
-            .unwrap_or_else(|| {
+            .or_else(|| {
                 // if the cursor can not be placed:
                 app_state.is_urgent_update = true;
                 // TODO: make sure this does not break with empty dirs
-                app_state.file_cursor.selected_file =
-                    Some(dir_items.first().unwrap().get_path().as_os_str().to_owned());
-                0
+                app_state.file_cursor.selected_file = dir_items
+                    .first()
+                    .map_or(None, |el| Some(el.get_path().as_os_str().to_owned()));
+                // if the directory is empty, skip it. Otherwise, go to the first element
+                if app_state.file_cursor.selected_file.is_some() {
+                    Some(0)
+                } else {
+                    None
+                }
             });
         let dir_items: Vec<_> = dir_items
             .iter()
@@ -87,7 +93,8 @@ pub(crate) fn ui<B: tui::backend::Backend>(
                 // apply styles
 
                 // different styles depending on whether it is selected or not and whether it si a dir or not
-                let styles_set = if el.0 == file_cursor_index {
+                // It is only None if the directory is empty, which would make the code below not be executed. Unwrap is safe.
+                let styles_set = if el.0 == file_cursor_index.unwrap() {
                     app_state.file_cursor.get_styles()
                 } else {
                     &app_state.default_style_set

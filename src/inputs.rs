@@ -65,7 +65,9 @@ pub(crate) fn clear_key_sequences(app_state: &mut AppState) {
     app_state.verb_key_sequence.clear();
 }
 
-pub(crate) fn change_file_cursor_index<F: Fn(usize, &Vec<FileTreeNode>) -> usize>(
+pub(crate) fn change_file_cursor_index<
+    F: Fn(Option<usize>, &Vec<FileTreeNode>) -> Option<usize>,
+>(
     app_state: &mut AppState,
     update_function: F,
 ) -> io::Result<()> {
@@ -73,24 +75,21 @@ pub(crate) fn change_file_cursor_index<F: Fn(usize, &Vec<FileTreeNode>) -> usize
         .current_dir
         .list_files(&app_state.file_tree_node_sorter)?;
     // TODO: work with empty dirs
-    let file_cursor_index = app_state
-        .file_cursor
-        .get_file_cursor_index(&dir_items)
-        .unwrap();
+    let file_cursor_index = app_state.file_cursor.get_file_cursor_index(&dir_items);
 
     let new_file_cursor_index = update_function(file_cursor_index, &dir_items);
 
     // Update
-    if new_file_cursor_index != file_cursor_index && new_file_cursor_index < dir_items.len() {
+    // TODO: what do we do if the index is past its max value?: new_file_cursor_index < dir_items.len()
+    if new_file_cursor_index != file_cursor_index {
         // TODO: do something about this unwrap
-        app_state.file_cursor.selected_file = Some(
+        // if no index, return None
+        app_state.file_cursor.selected_file = new_file_cursor_index.map_or(None, |index| {
             dir_items
-                .get(new_file_cursor_index)
-                .unwrap()
-                .get_path()
-                .as_os_str()
-                .to_owned(),
-        );
+                .get(index)
+                // if not found, return None
+                .map_or(None, |file| Some(file.get_path().as_os_str().to_owned()))
+        });
     }
 
     Ok(())
