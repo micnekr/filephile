@@ -77,10 +77,35 @@ pub(crate) fn ui<B: tui::backend::Backend>(
                     None
                 }
             });
+
+        let height_of_list_available = chunks[0].height as usize - 2; // -2 because one line from each side is used for the border
+
+        // TODO: use folder names instead of the path of whatever they are symlinked to
+        let num_to_skip = file_cursor_index.map_or(None, |index| {
+            // how far is the index from its desired position?
+            Some(
+                // Do not do anything
+                if app_state.max_distance_from_cursor_to_bottom + index < height_of_list_available {
+                    0
+                // if the viewport is full and the cursor is close to the bottom, but there are still concealed items later on in the list
+                } else if dir_items.len() > index + app_state.max_distance_from_cursor_to_bottom {
+                    index + app_state.max_distance_from_cursor_to_bottom - height_of_list_available
+                } else {
+                    dir_items.len() - height_of_list_available
+                },
+            )
+        });
+
         let dir_items: Vec<_> = dir_items
             .iter()
             .enumerate()
-            .map(|el| {
+            .filter_map(|el| {
+                // skip if we are scrolling upwards
+                if let Some(num_to_skip) = num_to_skip {
+                    if el.0 < num_to_skip {
+                        return None;
+                    }
+                }
                 let file_name = match el.1.get_simple_name() {
                     Ok(simple_name) => simple_name.to_string_lossy().into_owned(),
                     Err(err) => {
@@ -105,7 +130,7 @@ pub(crate) fn ui<B: tui::backend::Backend>(
                     styles_set.file.clone()
                 });
 
-                out
+                Some(out)
             })
             .collect();
 

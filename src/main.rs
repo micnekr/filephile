@@ -22,7 +22,7 @@ use ui::StyleSet;
 use crate::directory_tree::{FileSelectionSingle, FileTreeNode};
 
 struct AppState {
-    app_mode: AppMode,
+    app_mode: Mode,
 
     current_dir: directory_tree::FileTreeNode,
     // opened_file: Option<String>,
@@ -38,6 +38,8 @@ struct AppState {
 
     key_sequence_to_action_mapping: BTreeMap<&'static str, &'static str>,
 
+    max_distance_from_cursor_to_bottom: usize,
+
     is_urgent_update: bool,
 }
 
@@ -49,7 +51,7 @@ impl AppState {
 }
 
 #[derive(PartialEq)]
-enum AppMode {
+enum Mode {
     NORMAL,
     SEARCH,
     QUITTING,
@@ -64,7 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = tui::Terminal::new(backend)?;
 
     let mut app_state = AppState {
-        app_mode: AppMode::NORMAL,
+        app_mode: Mode::NORMAL,
         current_dir: FileTreeNode::new(env::current_dir()?.to_path_buf())?,
         // opened_file: None,
         error_message: "".to_owned(),
@@ -95,6 +97,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         modifier_key_sequence: String::from(""),
 
         key_sequence_to_action_mapping: BTreeMap::new(),
+
+        max_distance_from_cursor_to_bottom: 4,
 
         is_urgent_update: false,
         // NOTE: this would look good for multi-selection, maybe we should use it in the future
@@ -138,7 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.show_cursor()?;
 
     if let Err(err) = res {
-        println!("{:?}", err)
+        println!("Exiting because of an error: {:?}", err)
     }
 
     Ok(())
@@ -156,7 +160,7 @@ fn run_loop<
 ) -> io::Result<()> {
     let mut last_tick = Instant::now();
     loop {
-        if app_state.app_mode == AppMode::QUITTING {
+        if app_state.app_mode == Mode::QUITTING {
             return Ok(());
         }
         let timeout = if app_state.is_urgent_update {

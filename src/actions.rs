@@ -1,4 +1,4 @@
-use crate::{directory_tree::FileTreeNode, inputs::change_file_cursor_index, AppMode, AppState};
+use crate::{directory_tree::FileTreeNode, inputs::change_file_cursor_index, AppState, Mode};
 use lazy_static::lazy_static;
 use std::{collections::BTreeMap, io, path::PathBuf};
 
@@ -16,7 +16,7 @@ lazy_static! {
         m.insert(
             "quit",
             Box::new(|app_state, _| {
-                app_state.app_mode = AppMode::QUITTING;
+                app_state.app_mode = Mode::QUITTING;
                 Ok(ActionResult::VALID)
             }),
         );
