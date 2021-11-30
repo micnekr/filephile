@@ -74,7 +74,6 @@ pub(crate) fn change_file_cursor_index<
     let dir_items = app_state
         .current_dir
         .list_files(&app_state.file_tree_node_sorter)?;
-    // TODO: work with empty dirs
     let file_cursor_index = app_state.file_cursor.get_file_cursor_index(&dir_items);
 
     let new_file_cursor_index = update_function(file_cursor_index, &dir_items);
@@ -82,7 +81,6 @@ pub(crate) fn change_file_cursor_index<
     // Update
     // TODO: what do we do if the index is past its max value?: new_file_cursor_index < dir_items.len()
     if new_file_cursor_index != file_cursor_index {
-        // TODO: do something about this unwrap
         // if no index, return None
         app_state.file_cursor.selected_file = new_file_cursor_index.map_or(None, |index| {
             dir_items

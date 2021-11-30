@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use std::fs::read_dir;
 
@@ -15,9 +15,38 @@ pub(crate) struct FileTreeNode {
     pub(self) simple_name: Option<OsString>, // pub(self) dir_entry: DirEntry,
 }
 
+// taken from here:
+// https://github.com/rust-lang/cargo/blob/master/crates/cargo-util/src/paths.rs
+pub fn normalize_path(path: &Path) -> PathBuf {
+    let mut components = path.components().peekable();
+    let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+        components.next();
+        PathBuf::from(c.as_os_str())
+    } else {
+        PathBuf::new()
+    };
+
+    for component in components {
+        match component {
+            Component::Prefix(..) => unreachable!(),
+            Component::RootDir => {
+                ret.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                ret.pop();
+            }
+            Component::Normal(c) => {
+                ret.push(c);
+            }
+        }
+    }
+    ret
+}
+
 impl FileTreeNode {
     pub(crate) fn new(path: PathBuf) -> io::Result<FileTreeNode> {
-        let path = path.canonicalize()?;
+        let path = normalize_path(&path);
         let mut simple_name = path.file_name().map(OsString::from);
         if path.is_dir() {
             if let Some(mut el) = simple_name {
@@ -57,6 +86,14 @@ impl FileTreeNode {
         let mut ret = Vec::new();
         for entry in read_dir(self.path_buf.clone())? {
             let resolved_entry = entry?;
+            if resolved_entry
+                .path()
+                .as_os_str()
+                .to_string_lossy()
+                .contains("bin")
+            {
+                // println!("{:?}", resolved_entry.path().as_os_str().to_string_lossy());
+            }
             ret.push(FileTreeNode::new(resolved_entry.path())?);
         }
         ret.sort_by(|el1, el2| file_tree_node_sorter.cmp(el1, el2));

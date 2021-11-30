@@ -66,7 +66,6 @@ pub(crate) fn ui<B: tui::backend::Backend>(
             .or_else(|| {
                 // if the cursor can not be placed:
                 app_state.is_urgent_update = true;
-                // TODO: make sure this does not break with empty dirs
                 app_state.file_cursor.selected_file = dir_items
                     .first()
                     .map_or(None, |el| Some(el.get_path().as_os_str().to_owned()));

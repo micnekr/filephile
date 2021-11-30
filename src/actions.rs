@@ -23,7 +23,6 @@ lazy_static! {
         m.insert(
             "down",
             Box::new(|app_state, modifier| {
-                // TODO: make sure it works in empty dirs
                 change_file_cursor_index(app_state, |i, items| {
                     if let Some(i) = i{
                     Some((i + modifier).rem_euclid(items.len()))
@@ -91,7 +90,6 @@ lazy_static! {
                             None
                         }
                     })?;
-                    // TODO: return KeySequenceState::INVALID when needed
                     // TODO: maybe show an error message, e.g. INVALID(String) ?
                     Ok(ActionResult::VALID)
                 } else {
