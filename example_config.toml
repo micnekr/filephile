@@ -1,0 +1,9 @@
+[key_bindings]
+q = "quit"
+h = "left"
+j = "down"
+k = "up"
+l = "right"
+G = "go_to_or_go_to_bottom"
+gg = "go_to_top"
+"/" = "search"

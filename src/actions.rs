@@ -17,6 +17,7 @@ lazy_static! {
             "quit",
             Box::new(|app_state, _| {
                 app_state.app_mode = Mode::QUITTING;
+                app_state.is_urgent_update = true;
                 Ok(ActionResult::VALID)
             }),
         );
@@ -109,6 +110,15 @@ lazy_static! {
             "go_to_top",
             Box::new(|app_state, _| {
                 change_file_cursor_index(app_state, |_, _| Some(0))?;
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
+            "search",
+            Box::new(|app_state, _| {
+                app_state.app_mode = Mode::SEARCH;
+                app_state.file_cursor_memorised_selected_file = app_state.file_cursor.selected_file.clone();
+                app_state.is_urgent_update = true;
                 Ok(ActionResult::VALID)
             }),
         );

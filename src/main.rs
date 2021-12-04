@@ -4,6 +4,7 @@ mod inputs;
 mod ui;
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::Path;
 use std::{env, fs};
 use std::{
@@ -37,8 +38,10 @@ struct AppState {
 
     verb_key_sequence: String,
     modifier_key_sequence: String,
+    search_string: String,
 
     file_cursor: FileSelectionSingle,
+    file_cursor_memorised_selected_file: Option<OsString>,
     file_tree_node_sorter: FileTreeNodeSorter,
 
     default_style_set: StyleSet,
@@ -91,6 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .fg(tui::style::Color::Rgb(50, 50, 200)),
             },
         },
+        file_cursor_memorised_selected_file: None,
         file_tree_node_sorter: FileTreeNodeSorter::NORMAL,
 
         default_style_set: StyleSet {
@@ -104,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         verb_key_sequence: String::from(""),
         modifier_key_sequence: String::from(""),
+        search_string: String::from(""),
 
         key_sequence_to_action_mapping: BTreeMap::new(),
 
@@ -122,8 +127,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     load_config(
         &mut app_state,
         vec![
-            "/usr/share/fphile/global_config.toml",
             "../example_config.toml",
+            "/usr/share/fphile/global_config.toml",
         ],
     )?;
     // create app and run it
@@ -176,11 +181,12 @@ fn run_loop<
         };
         if crossterm::event::poll(timeout)? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                handle_inputs(key, app_state)?;
+                if let Err(err) = handle_inputs(key, app_state) {
+                    app_state.set_err(err);
+                }
             }
         }
 
-        // TODO: do not redraw as frequently
         terminal.draw(|f| {
             if let Err(err) = ui(f, app_state) {
                 app_state.set_err(err);

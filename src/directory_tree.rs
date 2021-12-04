@@ -5,9 +5,11 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use std::fs::read_dir;
+use std::slice::Iter;
 
 use crate::ui::StyleSet;
 
+#[derive(Clone)]
 pub(crate) struct FileTreeNode {
     // Make it impossible to modify it from the outside
     pub(self) path_buf: PathBuf,
@@ -86,14 +88,6 @@ impl FileTreeNode {
         let mut ret = Vec::new();
         for entry in read_dir(self.path_buf.clone())? {
             let resolved_entry = entry?;
-            if resolved_entry
-                .path()
-                .as_os_str()
-                .to_string_lossy()
-                .contains("bin")
-            {
-                // println!("{:?}", resolved_entry.path().as_os_str().to_string_lossy());
-            }
             ret.push(FileTreeNode::new(resolved_entry.path())?);
         }
         ret.sort_by(|el1, el2| file_tree_node_sorter.cmp(el1, el2));
@@ -163,7 +157,10 @@ impl FileSelection for FileSelectionSingle {
 }
 
 impl FileSelectionSingle {
-    pub(crate) fn get_file_cursor_index(&self, items: &Vec<FileTreeNode>) -> Option<usize> {
-        items.iter().position(|el| self.is_selected(&el))
+    pub(crate) fn get_file_cursor_index<'a, A: Iterator<Item = &'a FileTreeNode>>(
+        &'a self,
+        items: &mut A,
+    ) -> Option<usize> {
+        items.position(|el| self.is_selected(&el))
     }
 }

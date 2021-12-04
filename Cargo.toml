@@ -11,3 +11,6 @@ tui = { version = "0.16", default-features = false, features = ['crossterm'] }
 
 # for mapping actions and names
 lazy_static = "1.4.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.5"
+fuzzy-matcher = "0.3.7"
