@@ -39,7 +39,7 @@ pub(crate) fn handle_inputs(key: KeyEvent, app_state: &mut AppState) -> io::Resu
             .get(app_state.verb_key_sequence.as_str())
         {
             // TODO: show an error message if that is not found
-            if let Some(command) = ACTION_MAP.get(command_name) {
+            if let Some(command) = ACTION_MAP.get(command_name.as_str()) {
                 // TODO: attach a message to ActionResult::INVALID and display it to hint at what is wrong
                 let command_result = command(app_state, modifier)?;
             }

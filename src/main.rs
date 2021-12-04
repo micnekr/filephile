@@ -4,7 +4,8 @@ mod inputs;
 mod ui;
 
 use std::collections::BTreeMap;
-use std::env;
+use std::path::Path;
+use std::{env, fs};
 use std::{
     io,
     time::{Duration, Instant},
@@ -15,11 +16,17 @@ use crossterm::{
     terminal::EnterAlternateScreen,
 };
 use directory_tree::FileTreeNodeSorter;
+use serde::{Deserialize, Serialize};
 use tui::style::Style;
 
 use ui::StyleSet;
 
 use crate::directory_tree::{FileSelectionSingle, FileTreeNode};
+
+#[derive(Serialize, Deserialize, Debug)]
+struct AppSettings {
+    key_bindings: BTreeMap<String, String>,
+}
 
 struct AppState {
     app_mode: Mode,
@@ -36,7 +43,7 @@ struct AppState {
 
     default_style_set: StyleSet,
 
-    key_sequence_to_action_mapping: BTreeMap<&'static str, &'static str>,
+    key_sequence_to_action_mapping: BTreeMap<String, String>,
 
     max_distance_from_cursor_to_bottom: usize,
 
@@ -56,6 +63,8 @@ enum Mode {
     SEARCH,
     QUITTING,
 }
+
+// TODO: check that it works on windows
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // setup terminal
@@ -110,19 +119,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //     .fg(tui::style::Color::LightBlue),
     };
 
-    app_state.key_sequence_to_action_mapping.insert("q", "quit");
-    app_state.key_sequence_to_action_mapping.insert("j", "down");
-    app_state.key_sequence_to_action_mapping.insert("k", "up");
-    app_state.key_sequence_to_action_mapping.insert("h", "left");
-    app_state
-        .key_sequence_to_action_mapping
-        .insert("l", "right");
-    app_state
-        .key_sequence_to_action_mapping
-        .insert("G", "go_to_or_go_to_bottom");
-    app_state
-        .key_sequence_to_action_mapping
-        .insert("gg", "go_to_top");
+    load_config(
+        &mut app_state,
+        vec![
+            "/usr/share/fphile/global_config.toml",
+            "../example_config.toml",
+        ],
+    )?;
     // create app and run it
     let res = run_loop(
         &mut terminal,
@@ -189,4 +192,18 @@ fn run_loop<
             last_tick = Instant::now();
         }
     }
+}
+
+fn load_config<P: AsRef<Path>>(app_state: &mut AppState, paths: Vec<P>) -> io::Result<()> {
+    let config = paths
+        .iter()
+        .find_map(|path| fs::read_to_string(path).ok())
+        .ok_or(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Could not find a config file",
+        ))?;
+
+    let config: AppSettings = toml::from_str(config.as_str())?;
+    app_state.key_sequence_to_action_mapping = config.key_bindings;
+    Ok(())
 }

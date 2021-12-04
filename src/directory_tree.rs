@@ -15,7 +15,7 @@ pub(crate) struct FileTreeNode {
     pub(self) simple_name: Option<OsString>, // pub(self) dir_entry: DirEntry,
 }
 
-// taken from here:
+// taken from here (I am assuming MIT license applies?):
 // https://github.com/rust-lang/cargo/blob/master/crates/cargo-util/src/paths.rs
 pub fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();
