@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use std::{collections::BTreeMap, io};
+use std::{collections::BTreeMap, io, path::PathBuf};
 
 use crate::{
     directory_tree::FileTreeNode,
@@ -40,9 +40,16 @@ lazy_static! {
         let mut m: GlobalActionNameMap = BTreeMap::new();
         m.insert(
             String::from("quit"),
-            Box::new(|_, modes_manager, _| {
-                modes_manager.set_current_mode(Mode::Quitting);
+            Box::new(|_, mode_manager, _| {
+                mode_manager.set_current_mode(Mode::Quitting);
                 // app_state.is_urgent_update = true;
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
+            String::from("search"),
+            Box::new(|_, mode_manager, _| {
+                mode_manager.set_current_mode(Mode::Search);
                 Ok(ActionResult::VALID)
             }),
         );
@@ -73,6 +80,74 @@ lazy_static! {
                 Ok(ActionResult::VALID)
             }),
         );
+        m.insert(
+            String::from("left"),
+            Box::new(|app_state, mode_manager, modifier, dir_items|{
+                let current_path = app_state.current_dir.get_path();
+                let next_path = current_path.parent().unwrap_or(&current_path);
+                app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
+            String::from("right"),
+            Box::new(|app_state, mode_manager, modifier, dir_items| {
+                let selected_file_tree_node = mode_manager
+                    .get_file_cursor()
+                    .get_selected_file()
+                    .as_ref()
+                    .map(|el| FileTreeNode::new(PathBuf::from(el)));
+                if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
+                    // if selected_file_tree_node.
+                    if selected_file_tree_node.is_dir() {
+                        app_state.current_dir = selected_file_tree_node;
+                        Ok(ActionResult::VALID)
+                    } else {
+                        Ok(ActionResult::INVALID)
+                    }
+                } else {
+                        Ok(ActionResult::INVALID)
+                }
+            }),
+        );
+        m.insert(
+            String::from("go_to_or_go_to_bottom"),
+            Box::new(|_, mode_manager, modifier, dir_items| {
+                // TODO: decouple key sequences from the app state?
+                // if there is a specified line, go to it
+                if let Some(modifier) = modifier {
+                    mode_manager.change_file_cursor_index(dir_items, |i, items| {
+                        if let Some(i) = i {
+                        Some(if modifier > items.len() {
+                            i
+                        } else {
+                            modifier - 1 // to convert it into an index
+                        })
+                        } else {
+                            None
+                        }
+                    })?;
+                    // TODO: maybe show an error message, e.g. INVALID(String) ?
+                    Ok(ActionResult::VALID)
+                } else {
+                    mode_manager.change_file_cursor_index(dir_items, |_, items| {
+                        match items.len() {
+                            0 => None,
+
+                        _ => Some(items.len() - 1)
+                        }
+                    })?;
+                    Ok(ActionResult::VALID)
+                }
+            }),
+        );
+        m.insert(
+            String::from("go_to_top"),
+            Box::new(|_, mode_manager, _, dir_items| {
+                mode_manager.change_file_cursor_index(dir_items, |_, _| Some(0))?;
+                Ok(ActionResult::VALID)
+            }),
+        );
         m
     };
 }
@@ -82,84 +157,6 @@ lazy_static! {
 // lazy_static! {
 //     pub(crate) static ref ACTION_MAP: ActionNameMap = {
 //         let mut m: ActionNameMap = BTreeMap::new();
-//         m.insert(
-//             "left",
-//             Box::new(|app_state, _|{
-//                 let current_path = app_state.current_dir.get_path();
-//                 let next_path = current_path.parent().unwrap_or(&current_path);
-//                 app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
-//                 Ok(ActionResult::VALID)
-//             }),
-//         );
-//         m.insert(
-//             "right",
-//             Box::new(|app_state, _|{
-//                 let selected_file_tree_node = app_state
-//                     .file_cursor
-//                     .selected_file
-//                     .as_ref()
-//                     .map(|el| FileTreeNode::new(PathBuf::from(el)));
-//                 if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
-//                     // if selected_file_tree_node.
-//                     if selected_file_tree_node.is_dir() {
-//                         app_state.current_dir = selected_file_tree_node;
-//                         Ok(ActionResult::VALID)
-//                     } else {
-//                         Ok(ActionResult::INVALID)
-//                     }
-//                 } else {
-//                         Ok(ActionResult::INVALID)
-//                 }
-//             }),
-//         );
-//         m.insert(
-//             "go_to_or_go_to_bottom",
-//             Box::new(|app_state, modifier| {
-//                 // TODO: decouple key sequences from the app state?
-//                 // if there is a specified line, go to it
-//                 if let Some(modifier) = modifier {
-//                     change_file_cursor_index(app_state, |i, items| {
-//                         if let Some(i) = i {
-//                         Some(if modifier > items.len() {
-//                             i
-//                         } else {
-//                             modifier - 1 // to convert it into an index
-//                         })
-//                         } else {
-//                             None
-//                         }
-//                     })?;
-//                     // TODO: maybe show an error message, e.g. INVALID(String) ?
-//                     Ok(ActionResult::VALID)
-//                 } else {
-//                     change_file_cursor_index(app_state, |_, items|
-//                                              {
-//                                                  match items.len() {
-//                                                      0 => None,
-
-//                                                  _ => Some(items.len() - 1)
-//                                                  }
-//                                              })?;
-//                     Ok(ActionResult::VALID)
-//                 }
-//             }),
-//         );
-//         m.insert(
-//             "go_to_top",
-//             Box::new(|app_state, _| {
-//                 change_file_cursor_index(app_state, |_, _| Some(0))?;
-//                 Ok(ActionResult::VALID)
-//             }),
-//         );
-//         m.insert(
-//             "search",
-//             Box::new(|app_state, _| {
-//                 app_state.modes_manager = Mode::SEARCH.get_mode_manager();
-//                 app_state.file_cursor_memorised_selected_file = app_state.file_cursor.selected_file.clone();
-//                 // app_state.is_urgent_update = true;
-//                 Ok(ActionResult::VALID)
-//             }),
-//         );
 //         m
 //     };
 // }

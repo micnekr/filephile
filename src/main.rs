@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use actions::{ActionResult, NameMap, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP};
+use actions::{NameMap, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP};
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
 use modes::{Mode, ModeController, ModesManager, RecordedModifiable};
@@ -32,7 +32,7 @@ struct AppSettings {
     search_mode_key_bindings: StringMap,
 }
 #[derive(Clone)]
-pub(crate) struct StyleSet {
+pub struct StyleSet {
     pub file: Style,
     pub dir: Style,
 }
@@ -245,9 +245,11 @@ fn run_loop<B: tui::backend::Backend>(
                     input_reader.clear();
                 } else {
                     // if there are no possible ways to continue the sequence
-                    if !input_reader
-                        .check_for_possible_extensions(vec![&config.global_key_bindings])
-                    {
+                    if !input_reader.check_for_possible_extensions(vec![
+                        &config.global_key_bindings,
+                        &config.normal_mode_key_bindings,
+                        &config.search_mode_key_bindings,
+                    ]) {
                         input_reader.clear();
                     }
                 }

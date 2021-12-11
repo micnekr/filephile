@@ -111,7 +111,7 @@ impl FileTreeNode {
 // }
 
 #[derive(Clone)]
-pub(crate) struct FileSelectionSingle {
+pub struct FileSelectionSingle {
     pub(self) has_been_modified: bool,
     pub(self) selected_file: Option<OsString>,
     pub(self) styles: StyleSet,
@@ -192,5 +192,8 @@ impl FileSelectionSingle {
                     None
                 }
             })
+    }
+    pub(crate) fn get_selected_file(&self) -> &Option<OsString> {
+        &self.selected_file
     }
 }
