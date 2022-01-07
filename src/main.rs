@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use actions::{NameMap, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP};
+use actions::{NameMap, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP};
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
 use modes::{Mode, ModeController, ModesManager, RecordedModifiable};
@@ -39,19 +39,31 @@ pub struct StyleSet {
 
 struct InputReader {
     modifier_key_sequence: String,
-    verb_key_sequence: String,
+    verb_key_sequence: Vec<String>,
 }
 
 impl InputReader {
+    fn get_human_friendly_verb_key_sequence(&self) -> String {
+        self.verb_key_sequence
+            .iter()
+            .fold(String::from(""), |acc, el| {
+                if acc.is_empty() {
+                    // TODO: is there a more effecient method?
+                    acc + el.to_string().as_str()
+                } else {
+                    acc + format!(" {}", el).as_str()
+                }
+            })
+    }
     fn clear(&mut self) {
         self.modifier_key_sequence.clear();
         self.verb_key_sequence.clear();
     }
 
-    fn record_key_in_state(&mut self, key: KeyCode) {
+    fn record_key_in_state(&mut self, key: KeyCode, allow_modifiers: bool) {
         if let KeyCode::Char(character) = key {
             // if it is a modifier
-            if character.is_digit(10) {
+            if allow_modifiers && character.is_digit(10) {
                 self.modifier_key_sequence.push(character);
 
                 // we can not add a movement after a verb, so fail in that case
@@ -60,10 +72,16 @@ impl InputReader {
                     self.clear();
                 }
             } else {
-                self.verb_key_sequence.push(character);
+                self.verb_key_sequence.push(character.to_string());
             }
+        } else if let KeyCode::Esc = key {
+            self.verb_key_sequence.push("ESC".to_string());
+        } else if let KeyCode::Backspace = key {
+            self.verb_key_sequence.push("BACKSPACE".to_string());
+        } else if let KeyCode::Enter = key {
+            self.verb_key_sequence.push("ENTER".to_string());
         }
-        // TODO: keys like ESC and others
+        // TODO: other special keys
     }
 
     fn get_action_closure<'a, MapValueType>(
@@ -71,7 +89,9 @@ impl InputReader {
         key_to_action_mapping: &'a BTreeMap<String, String>,
         action_to_closure_mapping: &'a NameMap<MapValueType>,
     ) -> Option<&'a MapValueType> {
-        if let Some(action_name) = key_to_action_mapping.get(&self.verb_key_sequence) {
+        if let Some(action_name) =
+            key_to_action_mapping.get(&self.get_human_friendly_verb_key_sequence())
+        {
             return action_to_closure_mapping.get(action_name);
         }
         return None;
@@ -80,15 +100,14 @@ impl InputReader {
     fn check_for_possible_extensions(&self, possiblities: Vec<&BTreeMap<String, String>>) -> bool {
         possiblities.iter().any(|map| {
             map.keys()
-                .any(|string| string.starts_with(&self.verb_key_sequence))
+                .any(|string| string.starts_with(&self.get_human_friendly_verb_key_sequence()))
         })
     }
 }
 
-#[derive(Clone)]
-struct AppState {
+pub struct AppState {
     current_dir: directory_tree::FileTreeNode,
-    // is_urgent_update: bool,
+    input_reader: InputReader, // is_urgent_update: bool,
 }
 
 // TODO: check that it works on windows
@@ -123,7 +142,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let modes_manager = ModesManager::new(default_styles, cursor_styles);
     let app_state = AppState {
         current_dir: FileTreeNode::new(env::current_dir()?.to_path_buf())?,
-        // is_urgent_update: false,
+        input_reader : InputReader {
+            modifier_key_sequence: String::new(),
+            verb_key_sequence: Vec::new(),
+        }
         // NOTE: this would look good for multi-selection, maybe we should use it in the future
         // file: Style::default()
         //     .bg(tui::style::Color::DarkGray)
@@ -173,10 +195,6 @@ fn run_loop<B: tui::backend::Backend>(
     let mut app_state = app_state;
 
     let mut modes_manager = modes_manager;
-    let mut input_reader = InputReader {
-        modifier_key_sequence: String::new(),
-        verb_key_sequence: String::new(),
-    };
     loop {
         if modes_manager.get_current_mode() == &Mode::Quitting {
             return Ok(());
@@ -192,28 +210,33 @@ fn run_loop<B: tui::backend::Backend>(
         modes_manager.reset_modification_status();
 
         let poll_result = crossterm::event::poll(timeout)?;
-        let mut dir_items = app_state.current_dir.clone().get_files()?;
+        let dir_items = app_state.current_dir.clone().get_files()?;
         // collect the data once and then either use it for inputs or for outputs, but not both because of the potential to modify it
         // sort them
 
-        modes_manager.sort(&mut dir_items);
+        let dir_items = modes_manager.transform_dir_items(dir_items);
 
         // TODO: redraw on change
         if poll_result {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                input_reader.record_key_in_state(key.code);
+                app_state.input_reader.record_key_in_state(
+                    key.code,
+                    modes_manager.get_current_mode() != &Mode::Search,
+                );
                 // Look for key bindings in the current mode and execute them
                 let have_executed_an_action = match modes_manager.get_current_mode() {
                     Mode::Quitting => false,
                     Mode::Normal => {
-                        if let Some(closure) = input_reader.get_action_closure(
+                        if let Some(closure) = app_state.input_reader.get_action_closure(
                             &config.normal_mode_key_bindings,
                             &NORMAL_MODE_ACTION_MAP,
                         ) {
+                            let modifier_key_sequence: Option<usize> =
+                                app_state.input_reader.modifier_key_sequence.parse().ok();
                             closure(
                                 &mut app_state,
-                                &mut modes_manager.normal_mode_controller,
-                                input_reader.modifier_key_sequence.parse().ok(),
+                                &mut modes_manager,
+                                modifier_key_sequence,
                                 &dir_items,
                             )?;
                             // TODO: maybe tell them if there was an error
@@ -222,18 +245,28 @@ fn run_loop<B: tui::backend::Backend>(
                             false
                         }
                     }
-                    Mode::Search => false,
+                    Mode::Search => {
+                        if let Some(closure) = app_state.input_reader.get_action_closure(
+                            &config.search_mode_key_bindings,
+                            &SEARCH_MODE_ACTION_MAP,
+                        ) {
+                            closure(&mut app_state, &mut modes_manager, &dir_items)?;
+                            // TODO: maybe tell them if there was an error
+                            true
+                        } else {
+                            false
+                        }
+                    }
                 };
                 // only look for the other keybinds if the first one has not been done
                 let have_executed_an_action = have_executed_an_action
-                    || if let Some(closure) = input_reader
+                    || if let Some(closure) = app_state
+                        .input_reader
                         .get_action_closure(&config.global_key_bindings, &GLOBAL_ACTION_MAP)
                     {
-                        closure(
-                            &mut app_state,
-                            &mut modes_manager,
-                            input_reader.modifier_key_sequence.parse().ok(),
-                        )?;
+                        let modifier_key_sequence: Option<usize> =
+                            app_state.input_reader.modifier_key_sequence.parse().ok();
+                        closure(&mut app_state, &mut modes_manager, modifier_key_sequence)?;
                         // clear the sequence if it was successful or not
                         // TODO: maybe tell them if there was an error
                         true
@@ -242,15 +275,25 @@ fn run_loop<B: tui::backend::Backend>(
                     };
 
                 if have_executed_an_action {
-                    input_reader.clear();
+                    app_state.input_reader.clear();
                 } else {
                     // if there are no possible ways to continue the sequence
-                    if !input_reader.check_for_possible_extensions(vec![
+                    if !app_state.input_reader.check_for_possible_extensions(vec![
                         &config.global_key_bindings,
-                        &config.normal_mode_key_bindings,
-                        &config.search_mode_key_bindings,
+                        if let Mode::Search = modes_manager.get_current_mode() {
+                            &config.search_mode_key_bindings
+                        } else {
+                            &config.normal_mode_key_bindings
+                        },
                     ]) {
-                        input_reader.clear();
+                        // if it is a search mode, try entering the exact character
+                        if let Mode::Search = modes_manager.get_current_mode() {
+                            modes_manager
+                                .search_mode_controller
+                                .move_input(&mut app_state);
+                        } else {
+                            app_state.input_reader.clear();
+                        }
                     }
                 }
                 // if let Err(err) = handle_inputs(key, app_state) {
@@ -269,7 +312,7 @@ fn run_loop<B: tui::backend::Backend>(
                     .constraints(
                         [
                             Constraint::Min(1),
-                            Constraint::Length(if let Some(_) = bottom_text { 0 } else { 3 }),
+                            Constraint::Length(if let Some(_) = bottom_text { 3 } else { 0 }),
                         ]
                         .as_ref(),
                     )

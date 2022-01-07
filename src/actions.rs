@@ -1,9 +1,9 @@
 use lazy_static::lazy_static;
-use std::{collections::BTreeMap, io, path::PathBuf};
+use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf};
 
 use crate::{
     directory_tree::FileTreeNode,
-    modes::{Mode, ModesManager, NormalModeController},
+    modes::{Mode, ModesManager},
     AppState,
 };
 
@@ -26,10 +26,18 @@ type NormalModeActionNameMap = NameMap<
     Box<
         dyn Fn(
                 &mut AppState,
-                &mut NormalModeController,
+                &mut ModesManager,
                 Option<usize>,
                 &Vec<FileTreeNode>,
             ) -> io::Result<ActionResult>
+            + Sync
+            + 'static,
+    >,
+>;
+
+type SearchModeActionNameMap = NameMap<
+    Box<
+        dyn Fn(&mut AppState, &mut ModesManager, &Vec<FileTreeNode>) -> io::Result<ActionResult>
             + Sync
             + 'static,
     >,
@@ -47,7 +55,15 @@ lazy_static! {
             }),
         );
         m.insert(
-            String::from("search"),
+            String::from("normal_mode"),
+            Box::new(|_, mode_manager, _| {
+                mode_manager.search_mode_controller.clear();
+                mode_manager.set_current_mode(Mode::Normal);
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
+            String::from("search_mode"),
             Box::new(|_, mode_manager, _| {
                 mode_manager.set_current_mode(Mode::Search);
                 Ok(ActionResult::VALID)
@@ -58,9 +74,15 @@ lazy_static! {
     pub(crate) static ref NORMAL_MODE_ACTION_MAP: NormalModeActionNameMap = {
         let mut m: NormalModeActionNameMap = BTreeMap::new();
         m.insert(
+            String::from("noop"),
+            Box::new(|_, _, _, _| {
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
             String::from("down"),
             Box::new(|_, mode_manager, modifier, dir_items| {
-                mode_manager.change_file_cursor_index(dir_items, |i, items| {
+                mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |i, items| {
                     if let Some(i) = i{
                     Some((i + modifier.unwrap_or(1)).rem_euclid(items.len()))
                     }else {None}
@@ -72,7 +94,7 @@ lazy_static! {
             String::from("up"),
             Box::new(|_, mode_manager, modifier, dir_items|{
                 // Add the length to make sure that there is no overflow
-                mode_manager.change_file_cursor_index(dir_items, |i, items| {
+                mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |i, items| {
                     if let Some(i) = i {
                     Some((items.len() + i - modifier.unwrap_or(1)).rem_euclid(items.len()))
                     }else {None}
@@ -82,7 +104,7 @@ lazy_static! {
         );
         m.insert(
             String::from("left"),
-            Box::new(|app_state, mode_manager, modifier, dir_items|{
+            Box::new(|app_state, _, _, _|{
                 let current_path = app_state.current_dir.get_path();
                 let next_path = current_path.parent().unwrap_or(&current_path);
                 app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
@@ -91,8 +113,8 @@ lazy_static! {
         );
         m.insert(
             String::from("right"),
-            Box::new(|app_state, mode_manager, modifier, dir_items| {
-                let selected_file_tree_node = mode_manager
+            Box::new(|app_state, mode_manager, _, _| {
+                let selected_file_tree_node = mode_manager.normal_mode_controller
                     .get_file_cursor()
                     .get_selected_file()
                     .as_ref()
@@ -116,7 +138,7 @@ lazy_static! {
                 // TODO: decouple key sequences from the app state?
                 // if there is a specified line, go to it
                 if let Some(modifier) = modifier {
-                    mode_manager.change_file_cursor_index(dir_items, |i, items| {
+                    mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |i, items| {
                         if let Some(i) = i {
                         Some(if modifier > items.len() {
                             i
@@ -130,7 +152,7 @@ lazy_static! {
                     // TODO: maybe show an error message, e.g. INVALID(String) ?
                     Ok(ActionResult::VALID)
                 } else {
-                    mode_manager.change_file_cursor_index(dir_items, |_, items| {
+                    mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |_, items| {
                         match items.len() {
                             0 => None,
 
@@ -144,19 +166,41 @@ lazy_static! {
         m.insert(
             String::from("go_to_top"),
             Box::new(|_, mode_manager, _, dir_items| {
-                mode_manager.change_file_cursor_index(dir_items, |_, _| Some(0))?;
+                mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |_, _| Some(0))?;
                 Ok(ActionResult::VALID)
             }),
         );
         m
     };
-}
 
-// type Action =
-//     Box<dyn Fn(&mut AppState, Option<usize>) -> io::Result<ActionResult> + Sync + 'static>;
-// lazy_static! {
-//     pub(crate) static ref ACTION_MAP: ActionNameMap = {
-//         let mut m: ActionNameMap = BTreeMap::new();
-//         m
-//     };
-// }
+    pub(crate) static ref SEARCH_MODE_ACTION_MAP: SearchModeActionNameMap = {
+        let mut m: SearchModeActionNameMap = BTreeMap::new();
+        m.insert(
+            String::from("noop"),
+            Box::new(|app_state, mode_controller, _| {
+                mode_controller.search_mode_controller.move_input(app_state);
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
+            String::from("delete_last_char"),
+            Box::new(|_, mode_controller, _| {
+                mode_controller.search_mode_controller.delete_last_char();
+                Ok(ActionResult::VALID)
+            }),
+        );
+        m.insert(
+            String::from("select"),
+            Box::new(|_, mode_controller, dir_items |{
+                if let Some(first_item_name) = dir_items.get(0) {
+                mode_controller.normal_mode_controller.get_file_cursor_mut().set_selected_file(Some(OsString::from(first_item_name.get_path().as_os_str())));
+                }
+                mode_controller.search_mode_controller.clear();
+                mode_controller.set_current_mode(Mode::Normal);
+                Ok(ActionResult::VALID)
+            }),
+        );
+
+        m
+    };
+}

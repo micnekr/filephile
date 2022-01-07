@@ -63,7 +63,7 @@ pub(crate) trait ModeController<'a> {
     ) -> AllowedWidgets<'a>;
     fn get_right_ui(&'a self, block: Block<'a>, size: Rect) -> AllowedWidgets<'a>;
     fn get_bottom_text(&'a self) -> Option<AllowedWidgets<'a>>;
-    fn sort(&'a self, dir_items: &mut Vec<FileTreeNode>);
+    fn transform_dir_items(&'a self, dir_items: Vec<FileTreeNode>) -> Vec<FileTreeNode>;
 }
 
 fn cmp_by_dir_and_path(a: &FileTreeNode, b: &FileTreeNode) -> Ordering {
@@ -93,8 +93,14 @@ impl<'a> ModesManager<'a> {
         ModesManager {
             has_been_modified: false,
             current_mode: Mode::Normal,
-            normal_mode_controller: NormalModeController::new(default_styles, cursor_styles),
-            search_mode_controller: SearchModeController::new(),
+            normal_mode_controller: NormalModeController::new(
+                default_styles.clone(),
+                cursor_styles.clone(),
+            ),
+            search_mode_controller: SearchModeController::new(
+                default_styles.clone(),
+                cursor_styles.clone(),
+            ),
         }
     }
     pub(crate) fn get_current_mode(&mut self) -> &Mode {
@@ -140,10 +146,10 @@ impl<'a> ModeController<'a> for ModesManager<'a> {
         }
     }
 
-    fn sort(&self, dir_items: &mut Vec<FileTreeNode>) {
+    fn transform_dir_items(&self, dir_items: Vec<FileTreeNode>) -> Vec<FileTreeNode> {
         match self.current_mode {
-            Mode::Normal => self.normal_mode_controller.sort(dir_items),
-            Mode::Search => self.search_mode_controller.sort(dir_items),
+            Mode::Normal => self.normal_mode_controller.transform_dir_items(dir_items),
+            Mode::Search => self.search_mode_controller.transform_dir_items(dir_items),
             Mode::Quitting => panic!("Quitting mode has been used without quitting"),
         }
     }

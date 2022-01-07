@@ -74,6 +74,9 @@ impl<'a> NormalModeController<'a> {
 
         Ok(())
     }
+    pub fn get_file_cursor_mut(&mut self) -> &mut FileSelectionSingle {
+        &mut self.file_cursor
+    }
     pub fn get_file_cursor(&self) -> &FileSelectionSingle {
         &self.file_cursor
     }
@@ -161,7 +164,8 @@ impl<'a> ModeController<'a> for NormalModeController<'a> {
         }
     }
 
-    fn sort(&self, dir_items: &mut Vec<FileTreeNode>) {
+    fn transform_dir_items(&self, mut dir_items: Vec<FileTreeNode>) -> Vec<FileTreeNode> {
         dir_items.sort_by(|a, b| cmp_by_dir_and_path(a, b));
+        dir_items
     }
 }
