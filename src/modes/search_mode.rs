@@ -45,9 +45,13 @@ impl<'a> SearchModeController<'a> {
 
     pub fn move_input(&mut self, app_state: &mut AppState) {
         self.mark_as_modified();
-        self.search_string
-            .push_str(&app_state.input_reader.verb_key_sequence.concat());
-        app_state.input_reader.clear();
+        self.search_string.push_str(
+            &app_state
+                .get_input_reader()
+                .get_verb_key_sequence()
+                .concat(),
+        );
+        app_state.get_input_reader().clear();
     }
 
     pub fn delete_last_char(&mut self) {

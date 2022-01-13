@@ -10,7 +10,7 @@ use crate::modes::RecordedModifiable;
 use crate::StyleSet;
 
 #[derive(Clone)]
-pub(crate) struct FileTreeNode {
+pub struct FileTreeNode {
     // Make it impossible to modify it from the outside
     pub(self) path_buf: PathBuf,
     pub(self) is_dir: bool,
@@ -104,12 +104,6 @@ impl FileTreeNode {
     }
 }
 
-// #[derive(Clone)]
-// pub(crate) struct FileSelectionMultiple {
-//     pub selected_files: BTreeSet<OsString>,
-//     pub styles: StyleSet,
-// }
-
 #[derive(Clone)]
 pub struct FileSelectionSingle {
     pub(self) has_been_modified: bool,
@@ -121,15 +115,6 @@ pub(crate) trait FileSelection {
     fn is_selected(&self, node: &FileTreeNode) -> bool;
     fn get_styles(&self) -> &StyleSet;
 }
-
-// impl FileSelection for FileSelectionMultiple {
-//     fn is_selected(&self, node: &FileTreeNode) -> bool {
-//         self.selected_files.contains(node.get_path().as_os_str())
-//     }
-//     fn get_styles(&self) -> &StyleSet {
-//         &self.styles
-//     }
-// }
 
 impl FileSelection for FileSelectionSingle {
     fn is_selected(&self, node: &FileTreeNode) -> bool {

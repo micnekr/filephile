@@ -105,9 +105,9 @@ lazy_static! {
         m.insert(
             String::from("left"),
             Box::new(|app_state, _, _, _|{
-                let current_path = app_state.current_dir.get_path();
+                let current_path = app_state.get_current_dir().get_path();
                 let next_path = current_path.parent().unwrap_or(&current_path);
-                app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
+                app_state.set_current_dir(FileTreeNode::new(next_path.to_path_buf())?);
                 Ok(ActionResult::VALID)
             }),
         );
@@ -122,7 +122,7 @@ lazy_static! {
                 if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
                     // if selected_file_tree_node.
                     if selected_file_tree_node.is_dir() {
-                        app_state.current_dir = selected_file_tree_node;
+                        app_state.set_current_dir(selected_file_tree_node);
                         Ok(ActionResult::VALID)
                     } else {
                         Ok(ActionResult::INVALID)

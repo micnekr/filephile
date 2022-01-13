@@ -1,114 +1,25 @@
 mod actions;
 mod directory_tree;
+mod helper_types;
 mod modes;
-// mod ui;
 
-use std::collections::BTreeMap;
-use std::path::Path;
-use std::{env, fs};
+use std::env;
 use std::{
     io,
     time::{Duration, Instant},
 };
 
-use actions::{NameMap, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP};
-use crossterm::event::KeyCode;
+use actions::{GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP};
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
+use helper_types::{AppSettings, AppState, InputReader, StyleSet};
 use modes::{Mode, ModeController, ModesManager, RecordedModifiable};
-use serde::{Deserialize, Serialize};
-use tui::layout::Constraint;
+use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::Style;
 
-use tui::widgets::Borders;
+use tui::widgets::{Block, Borders, Clear};
 
 use crate::directory_tree::FileTreeNode;
-
-type StringMap = BTreeMap<String, String>;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct AppSettings {
-    global_key_bindings: StringMap,
-    normal_mode_key_bindings: StringMap,
-    search_mode_key_bindings: StringMap,
-}
-#[derive(Clone)]
-pub struct StyleSet {
-    pub file: Style,
-    pub dir: Style,
-}
-
-struct InputReader {
-    modifier_key_sequence: String,
-    verb_key_sequence: Vec<String>,
-}
-
-impl InputReader {
-    fn get_human_friendly_verb_key_sequence(&self) -> String {
-        self.verb_key_sequence
-            .iter()
-            .fold(String::from(""), |acc, el| {
-                if acc.is_empty() {
-                    // TODO: is there a more effecient method?
-                    acc + el.to_string().as_str()
-                } else {
-                    acc + format!(" {}", el).as_str()
-                }
-            })
-    }
-    fn clear(&mut self) {
-        self.modifier_key_sequence.clear();
-        self.verb_key_sequence.clear();
-    }
-
-    fn record_key_in_state(&mut self, key: KeyCode, allow_modifiers: bool) {
-        if let KeyCode::Char(character) = key {
-            // if it is a modifier
-            if allow_modifiers && character.is_digit(10) {
-                self.modifier_key_sequence.push(character);
-
-                // we can not add a movement after a verb, so fail in that case
-                if !self.verb_key_sequence.is_empty() {
-                    // TODO: maybe notify the user that this was an incorrect action
-                    self.clear();
-                }
-            } else {
-                self.verb_key_sequence.push(character.to_string());
-            }
-        } else if let KeyCode::Esc = key {
-            self.verb_key_sequence.push("ESC".to_string());
-        } else if let KeyCode::Backspace = key {
-            self.verb_key_sequence.push("BACKSPACE".to_string());
-        } else if let KeyCode::Enter = key {
-            self.verb_key_sequence.push("ENTER".to_string());
-        }
-        // TODO: other special keys
-    }
-
-    fn get_action_closure<'a, MapValueType>(
-        &self,
-        key_to_action_mapping: &'a BTreeMap<String, String>,
-        action_to_closure_mapping: &'a NameMap<MapValueType>,
-    ) -> Option<&'a MapValueType> {
-        if let Some(action_name) =
-            key_to_action_mapping.get(&self.get_human_friendly_verb_key_sequence())
-        {
-            return action_to_closure_mapping.get(action_name);
-        }
-        return None;
-    }
-
-    fn check_for_possible_extensions(&self, possiblities: Vec<&BTreeMap<String, String>>) -> bool {
-        possiblities.iter().any(|map| {
-            map.keys()
-                .any(|string| string.starts_with(&self.get_human_friendly_verb_key_sequence()))
-        })
-    }
-}
-
-pub struct AppState {
-    current_dir: directory_tree::FileTreeNode,
-    input_reader: InputReader, // is_urgent_update: bool,
-}
+use crate::helper_types::ErrorPopup;
 
 // TODO: check that it works on windows
 
@@ -140,22 +51,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let modes_manager = ModesManager::new(default_styles, cursor_styles);
-    let app_state = AppState {
-        current_dir: FileTreeNode::new(env::current_dir()?.to_path_buf())?,
-        input_reader : InputReader {
-            modifier_key_sequence: String::new(),
-            verb_key_sequence: Vec::new(),
-        }
-        // NOTE: this would look good for multi-selection, maybe we should use it in the future
-        // file: Style::default()
-        //     .bg(tui::style::Color::DarkGray)
-        //     .fg(tui::style::Color::White),
-        // dir: Style::default()
-        //     .bg(tui::style::Color::DarkGray)
-        //     .fg(tui::style::Color::LightBlue),
-    };
+    let app_state = AppState::new(FileTreeNode::new(env::current_dir()?.to_path_buf())?);
 
-    let config = load_config(vec![
+    let config = AppSettings::load_config(vec![
         "../example_config.toml",
         "/usr/share/fphile/global_config.toml",
     ])?;
@@ -164,8 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut terminal,
         app_state,
         modes_manager,
+        Duration::from_millis(config.render_timeout.unwrap_or(250)),
         config,
-        Duration::from_millis(250),
     );
 
     // restore terminal
@@ -185,22 +83,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 fn run_loop<B: tui::backend::Backend>(
     terminal: &mut tui::Terminal<B>,
-    app_state: AppState,
-    modes_manager: ModesManager,
-    config: AppSettings,
+    mut app_state: AppState,
+    mut modes_manager: ModesManager,
     tick_rate: Duration,
+    config: AppSettings,
 ) -> io::Result<()> {
     let mut last_tick = Instant::now();
 
-    let mut app_state = app_state;
+    // make sure to draw the first frame on startup
+    modes_manager.mark_as_modified();
 
-    let mut modes_manager = modes_manager;
     loop {
         if modes_manager.get_current_mode() == &Mode::Quitting {
             return Ok(());
         }
         // if an urgent update, fore it to update ASAP by reducing wait time to 0
-        let timeout = if modes_manager.has_been_modified() {
+        let timeout = if modes_manager.has_been_modified() || app_state.has_been_modified() {
             Duration::from_secs(0)
         } else {
             tick_rate
@@ -210,7 +108,27 @@ fn run_loop<B: tui::backend::Backend>(
         modes_manager.reset_modification_status();
 
         let poll_result = crossterm::event::poll(timeout)?;
-        let dir_items = app_state.current_dir.clone().get_files()?;
+        let dir_items = app_state
+            .get_current_dir()
+            .clone()
+            .get_files()
+            .unwrap_or_else(|err| {
+                if let io::ErrorKind::PermissionDenied = err.kind() {
+                    app_state.set_error_popup(Some(ErrorPopup::new(
+                        String::from("Permission denied"),
+                        String::from(
+                            "You do not have the permissions to access this folder/directory",
+                        ),
+                    )));
+                // unknown error
+                } else {
+                    app_state.set_error_popup(Some(ErrorPopup::new(
+                        String::from("Unknown error"),
+                        String::from("An error occured"),
+                    )));
+                }
+                vec![]
+            });
         // collect the data once and then either use it for inputs or for outputs, but not both because of the potential to modify it
         // sort them
 
@@ -219,7 +137,12 @@ fn run_loop<B: tui::backend::Backend>(
         // TODO: redraw on change
         if poll_result {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                app_state.input_reader.record_key_in_state(
+                // close the popup on a key press
+                if let Some(_) = app_state.get_error_popup() {
+                    app_state.set_error_popup(None);
+                }
+
+                app_state.get_input_reader().record_key_in_state(
                     key.code,
                     modes_manager.get_current_mode() != &Mode::Search,
                 );
@@ -227,12 +150,15 @@ fn run_loop<B: tui::backend::Backend>(
                 let have_executed_an_action = match modes_manager.get_current_mode() {
                     Mode::Quitting => false,
                     Mode::Normal => {
-                        if let Some(closure) = app_state.input_reader.get_action_closure(
+                        if let Some(closure) = app_state.get_input_reader().get_action_closure(
                             &config.normal_mode_key_bindings,
                             &NORMAL_MODE_ACTION_MAP,
                         ) {
-                            let modifier_key_sequence: Option<usize> =
-                                app_state.input_reader.modifier_key_sequence.parse().ok();
+                            let modifier_key_sequence: Option<usize> = app_state
+                                .get_input_reader()
+                                .get_modifier_key_sequence()
+                                .parse()
+                                .ok();
                             closure(
                                 &mut app_state,
                                 &mut modes_manager,
@@ -246,7 +172,7 @@ fn run_loop<B: tui::backend::Backend>(
                         }
                     }
                     Mode::Search => {
-                        if let Some(closure) = app_state.input_reader.get_action_closure(
+                        if let Some(closure) = app_state.get_input_reader().get_action_closure(
                             &config.search_mode_key_bindings,
                             &SEARCH_MODE_ACTION_MAP,
                         ) {
@@ -261,11 +187,14 @@ fn run_loop<B: tui::backend::Backend>(
                 // only look for the other keybinds if the first one has not been done
                 let have_executed_an_action = have_executed_an_action
                     || if let Some(closure) = app_state
-                        .input_reader
+                        .get_input_reader()
                         .get_action_closure(&config.global_key_bindings, &GLOBAL_ACTION_MAP)
                     {
-                        let modifier_key_sequence: Option<usize> =
-                            app_state.input_reader.modifier_key_sequence.parse().ok();
+                        let modifier_key_sequence: Option<usize> = app_state
+                            .get_input_reader()
+                            .get_modifier_key_sequence()
+                            .parse()
+                            .ok();
                         closure(&mut app_state, &mut modes_manager, modifier_key_sequence)?;
                         // clear the sequence if it was successful or not
                         // TODO: maybe tell them if there was an error
@@ -275,24 +204,27 @@ fn run_loop<B: tui::backend::Backend>(
                     };
 
                 if have_executed_an_action {
-                    app_state.input_reader.clear();
+                    app_state.get_input_reader().clear();
                 } else {
                     // if there are no possible ways to continue the sequence
-                    if !app_state.input_reader.check_for_possible_extensions(vec![
-                        &config.global_key_bindings,
-                        if let Mode::Search = modes_manager.get_current_mode() {
-                            &config.search_mode_key_bindings
-                        } else {
-                            &config.normal_mode_key_bindings
-                        },
-                    ]) {
+                    if !app_state
+                        .get_input_reader()
+                        .check_for_possible_extensions(vec![
+                            &config.global_key_bindings,
+                            if let Mode::Search = modes_manager.get_current_mode() {
+                                &config.search_mode_key_bindings
+                            } else {
+                                &config.normal_mode_key_bindings
+                            },
+                        ])
+                    {
                         // if it is a search mode, try entering the exact character
                         if let Mode::Search = modes_manager.get_current_mode() {
                             modes_manager
                                 .search_mode_controller
                                 .move_input(&mut app_state);
                         } else {
-                            app_state.input_reader.clear();
+                            app_state.get_input_reader().clear();
                         }
                     }
                 }
@@ -305,6 +237,7 @@ fn run_loop<B: tui::backend::Backend>(
             // Processes and draws the output
             // TODO: maybe make is_urgent_update not need to be set specifically and be inferred from changes
             terminal.draw(|f| {
+                let f_size = f.size();
                 let bottom_text = modes_manager.get_bottom_text();
 
                 let chunks = tui::layout::Layout::default()
@@ -316,7 +249,7 @@ fn run_loop<B: tui::backend::Backend>(
                         ]
                         .as_ref(),
                     )
-                    .split(f.size());
+                    .split(f_size);
 
                 if let Some(bottom_text) = bottom_text {
                     let block = tui::widgets::Block::default().borders(Borders::ALL);
@@ -332,7 +265,7 @@ fn run_loop<B: tui::backend::Backend>(
                         .split(chunks[0]);
 
                     let dir_path_string = app_state
-                        .current_dir
+                        .get_current_dir()
                         .get_path()
                         .as_os_str()
                         .to_string_lossy()
@@ -349,9 +282,18 @@ fn run_loop<B: tui::backend::Backend>(
                     let left_widget = modes_manager.get_left_ui(block, chunks[0], &dir_items);
 
                     left_widget.render(f, chunks[0]);
+
+                    // error popup
+                    if let Some(error_popup) = &app_state.get_error_popup() {
+                        let block = Block::default()
+                            .title(error_popup.title.clone())
+                            .borders(Borders::ALL);
+                        let area = centered_rect(60, 60, f_size);
+                        f.render_widget(Clear, area); //this clears out the background
+                        f.render_widget(block, area);
+                    }
                 }
             })?;
-            // TODO: error management
         }
 
         if last_tick.elapsed() >= tick_rate {
@@ -360,16 +302,30 @@ fn run_loop<B: tui::backend::Backend>(
     }
 }
 
-fn load_config<P: AsRef<Path>>(paths: Vec<P>) -> io::Result<AppSettings> {
-    let config = paths
-        .iter()
-        .find_map(|path| fs::read_to_string(path).ok())
-        .ok_or(io::Error::new(
-            io::ErrorKind::NotFound,
-            "Could not find a config file",
-        ))?;
+// from https://github.com/fdehau/tui-rs/blob/master/examples/popup.rs
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
 
-    let config: AppSettings = toml::from_str(config.as_str())?;
-    // app_state.global_key_sequence_to_action_mapping = config.global_key_bindings;
-    Ok(config)
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(layout[1])[1]
 }

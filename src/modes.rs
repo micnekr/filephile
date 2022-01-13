@@ -49,7 +49,7 @@ pub(crate) enum Mode {
     Quitting,
 }
 
-pub(crate) trait RecordedModifiable {
+pub trait RecordedModifiable {
     fn reset_modification_status(&mut self);
     fn mark_as_modified(&mut self);
     fn has_been_modified(&self) -> bool;
