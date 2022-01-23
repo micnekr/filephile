@@ -1,7 +1,12 @@
 mod normal_mode;
 mod search_mode;
 
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    ffi::{OsStr, OsString},
+    fs::File,
+    io::Read,
+};
 
 use tui::{
     backend::Backend,
@@ -9,12 +14,12 @@ use tui::{
     widgets::{Block, List, Paragraph},
 };
 
-use crate::{directory_tree::FileTreeNode, StyleSet};
+use crate::{compile_time_settings::preview_text_length, directory_tree::FileTreeNode, StyleSet};
 
 pub use self::{normal_mode::NormalModeController, search_mode::SearchModeController};
 
 // widgets that can be displayed from within the main loop
-pub(crate) enum AllowedWidgets<'a> {
+pub enum AllowedWidgets<'a> {
     BlockWrapper(Block<'a>),
     ListWrapper(List<'a>),
     ParagraphWrapper(Paragraph<'a>),
@@ -61,7 +66,12 @@ pub(crate) trait ModeController<'a> {
         size: Rect,
         dir_items: &Vec<FileTreeNode>,
     ) -> AllowedWidgets<'a>;
-    fn get_right_ui(&'a self, block: Block<'a>, size: Rect) -> AllowedWidgets<'a>;
+    fn get_right_ui(
+        &'a self,
+        block: Block<'a>,
+        size: Rect,
+        dir_items: &Vec<FileTreeNode>,
+    ) -> AllowedWidgets<'a>;
     fn get_bottom_text(&'a self) -> Option<AllowedWidgets<'a>>;
     fn transform_dir_items(&'a self, dir_items: Vec<FileTreeNode>) -> Vec<FileTreeNode>;
 }
@@ -76,7 +86,7 @@ fn cmp_by_dir_and_path(a: &FileTreeNode, b: &FileTreeNode) -> Ordering {
             Ordering::Greater
         }
     } else {
-        a.get_path().cmp(b.get_path())
+        a.get_path_buf().cmp(b.get_path_buf())
     }
 }
 
@@ -130,10 +140,19 @@ impl<'a> ModeController<'a> for ModesManager<'a> {
         }
     }
 
-    fn get_right_ui(&'a self, block: Block<'a>, size: Rect) -> AllowedWidgets<'a> {
+    fn get_right_ui(
+        &'a self,
+        block: Block<'a>,
+        size: Rect,
+        dir_items: &Vec<FileTreeNode>,
+    ) -> AllowedWidgets<'a> {
         match self.current_mode {
-            Mode::Normal => self.normal_mode_controller.get_right_ui(block, size),
-            Mode::Search => self.search_mode_controller.get_right_ui(block, size),
+            Mode::Normal => self
+                .normal_mode_controller
+                .get_right_ui(block, size, dir_items),
+            Mode::Search => self
+                .search_mode_controller
+                .get_right_ui(block, size, dir_items),
             Mode::Quitting => panic!("Quitting mode has been used without quitting"),
         }
     }
@@ -171,5 +190,30 @@ impl RecordedModifiable for ModesManager<'_> {
         self.has_been_modified
             || self.normal_mode_controller.has_been_modified()
             || self.search_mode_controller.has_been_modified()
+    }
+}
+
+pub fn create_preview<'a>(f: &FileTreeNode, block: Block<'a>) -> AllowedWidgets<'a> {
+    // let extension = f.get_path_buf().extension().unwrap_or(OsStr::new(""));
+
+    let mut buffer = [0; preview_text_length]; // TODO: change the length
+    let opened_file = File::open(f.get_path_buf()).ok();
+
+    let text: Option<String> = if let Some(Ok(n)) =
+        // TODO: do not be reading the file that frequently
+        opened_file
+            .map(|mut opened_file| opened_file.read(&mut buffer))
+    {
+        Some(String::from_utf8_lossy(&buffer[..n]).into_owned())
+    } else {
+        None
+    };
+
+    if let Some(text) = text {
+        let para = Paragraph::new(text).block(block);
+
+        AllowedWidgets::ParagraphWrapper(para)
+    } else {
+        AllowedWidgets::BlockWrapper(block)
     }
 }

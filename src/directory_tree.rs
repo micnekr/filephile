@@ -87,7 +87,7 @@ impl FileTreeNode {
         }
     }
 
-    pub(crate) fn get_path(&self) -> &PathBuf {
+    pub(crate) fn get_path_buf(&self) -> &PathBuf {
         &self.path_buf
     }
     pub(crate) fn is_dir(&self) -> bool {
@@ -107,7 +107,7 @@ impl FileTreeNode {
 #[derive(Clone)]
 pub struct FileSelectionSingle {
     pub(self) has_been_modified: bool,
-    pub(self) selected_file: Option<OsString>,
+    pub(self) selected_file: Option<FileTreeNode>,
     pub(self) styles: StyleSet,
 }
 
@@ -119,7 +119,7 @@ pub(crate) trait FileSelection {
 impl FileSelection for FileSelectionSingle {
     fn is_selected(&self, node: &FileTreeNode) -> bool {
         if let Some(selected_file) = &self.selected_file {
-            selected_file == node.get_path().as_os_str()
+            selected_file.get_path_buf() == node.get_path_buf()
         } else {
             false
         }
@@ -150,7 +150,7 @@ impl FileSelectionSingle {
             styles,
         }
     }
-    pub(crate) fn set_selected_file(&mut self, selected_file: Option<OsString>) {
+    pub(crate) fn set_selected_file(&mut self, selected_file: Option<FileTreeNode>) {
         self.mark_as_modified();
         self.selected_file = selected_file;
     }
@@ -169,7 +169,7 @@ impl FileSelectionSingle {
                 self.selected_file = items
                     // get the first index
                     .first()
-                    .map_or(None, |el| Some(el.get_path().as_os_str().to_owned()));
+                    .map_or(None, |el| Some(el.to_owned()));
                 // if the directory is empty, skip it. Otherwise, go to the first element
                 if self.selected_file.is_some() {
                     Some(0)
@@ -178,7 +178,7 @@ impl FileSelectionSingle {
                 }
             })
     }
-    pub(crate) fn get_selected_file(&self) -> &Option<OsString> {
+    pub(crate) fn get_selected_file(&self) -> &Option<FileTreeNode> {
         &self.selected_file
     }
 }

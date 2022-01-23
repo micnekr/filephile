@@ -10,7 +10,9 @@ use crate::{
     StyleSet,
 };
 
-use super::{cmp_by_dir_and_path, AllowedWidgets, ModeController, RecordedModifiable};
+use super::{
+    cmp_by_dir_and_path, create_preview, AllowedWidgets, ModeController, RecordedModifiable,
+};
 
 #[derive(Clone)]
 pub struct NormalModeController<'a> {
@@ -68,7 +70,7 @@ impl<'a> NormalModeController<'a> {
                     dir_items
                         .get(index)
                         // if not found, return None
-                        .map_or(None, |file| Some(file.get_path().as_os_str().to_owned()))
+                        .map_or(None, |file| Some(file.to_owned()))
                 }));
         }
 
@@ -150,7 +152,11 @@ impl<'a> ModeController<'a> for NormalModeController<'a> {
         AllowedWidgets::ListWrapper(list.block(block))
     }
 
-    fn get_right_ui(&self, block: Block<'a>, _: Rect) -> AllowedWidgets<'a> {
+    fn get_right_ui(&self, block: Block<'a>, _: Rect, _: &Vec<FileTreeNode>) -> AllowedWidgets<'a> {
+        let selected_f = self.file_cursor.get_selected_file();
+        if let Some(f) = selected_f {
+            return create_preview(f, block);
+        }
         AllowedWidgets::BlockWrapper(block)
     }
 

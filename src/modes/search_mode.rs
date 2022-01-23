@@ -1,5 +1,3 @@
-use std::ffi::OsString;
-
 use tui::{
     layout::Rect,
     widgets::{Block, List, ListItem, Paragraph, Wrap},
@@ -7,7 +5,9 @@ use tui::{
 
 use crate::{directory_tree::FileTreeNode, AppState, StyleSet};
 
-use super::{cmp_by_dir_and_path, AllowedWidgets, ModeController, RecordedModifiable};
+use super::{
+    cmp_by_dir_and_path, create_preview, AllowedWidgets, ModeController, RecordedModifiable,
+};
 
 #[derive(Clone)]
 pub struct SearchModeController<'a> {
@@ -101,7 +101,16 @@ impl<'a> ModeController<'a> for SearchModeController<'a> {
         AllowedWidgets::ListWrapper(list.block(block))
     }
 
-    fn get_right_ui(&self, block: Block<'a>, _: Rect) -> AllowedWidgets<'a> {
+    fn get_right_ui(
+        &self,
+        block: Block<'a>,
+        _: Rect,
+        dir_items: &Vec<FileTreeNode>,
+    ) -> AllowedWidgets<'a> {
+        let selected_f = dir_items.get(0);
+        if let Some(f) = selected_f {
+            return create_preview(f, block);
+        }
         AllowedWidgets::BlockWrapper(block)
     }
 

@@ -1,4 +1,5 @@
 mod actions;
+mod compile_time_settings;
 mod directory_tree;
 mod helper_types;
 mod modes;
@@ -11,12 +12,12 @@ use std::{
 
 use actions::{GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP};
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
-use helper_types::{AppSettings, AppState, InputReader, StyleSet};
+use helper_types::{AppSettings, AppState, StyleSet};
 use modes::{Mode, ModeController, ModesManager, RecordedModifiable};
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::Style;
 
-use tui::widgets::{Block, Borders, Clear};
+use tui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use crate::directory_tree::FileTreeNode;
 use crate::helper_types::ErrorPopup;
@@ -50,13 +51,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .fg(tui::style::Color::Rgb(50, 50, 200)),
     };
 
-    let modes_manager = ModesManager::new(default_styles, cursor_styles);
-    let app_state = AppState::new(FileTreeNode::new(env::current_dir()?.to_path_buf())?);
-
     let config = AppSettings::load_config(vec![
         "../example_config.toml",
         "/usr/share/fphile/global_config.toml",
     ])?;
+
+    let modes_manager = ModesManager::new(default_styles, cursor_styles);
+    let app_state = AppState::new(FileTreeNode::new(env::current_dir()?.to_path_buf())?);
     // create app and run it
     let res = run_loop(
         &mut terminal,
@@ -266,13 +267,13 @@ fn run_loop<B: tui::backend::Backend>(
 
                     let dir_path_string = app_state
                         .get_current_dir()
-                        .get_path()
+                        .get_path_buf()
                         .as_os_str()
                         .to_string_lossy()
                         .into_owned();
 
                     let block = tui::widgets::Block::default().borders(Borders::ALL);
-                    let right_widget = modes_manager.get_right_ui(block, chunks[1]);
+                    let right_widget = modes_manager.get_right_ui(block, chunks[1], &dir_items);
                     right_widget.render(f, chunks[1]);
 
                     let block = tui::widgets::Block::default()
@@ -288,9 +289,15 @@ fn run_loop<B: tui::backend::Backend>(
                         let block = Block::default()
                             .title(error_popup.title.clone())
                             .borders(Borders::ALL);
+
+                        let paragraph = Paragraph::new(error_popup.desc.clone())
+                            .block(block)
+                            .alignment(tui::layout::Alignment::Center)
+                            .wrap(Wrap { trim: false });
+
                         let area = centered_rect(60, 60, f_size);
                         f.render_widget(Clear, area); //this clears out the background
-                        f.render_widget(block, area);
+                        f.render_widget(paragraph, area);
                     }
                 }
             })?;

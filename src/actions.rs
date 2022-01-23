@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use std::{collections::BTreeMap, ffi::OsString, io, path::PathBuf};
+use std::{collections::BTreeMap, ffi::OsString, fs::File, io, path::PathBuf};
 
 use crate::{
     directory_tree::FileTreeNode,
@@ -105,7 +105,7 @@ lazy_static! {
         m.insert(
             String::from("left"),
             Box::new(|app_state, _, _, _|{
-                let current_path = app_state.get_current_dir().get_path();
+                let current_path = app_state.get_current_dir().get_path_buf();
                 let next_path = current_path.parent().unwrap_or(&current_path);
                 app_state.set_current_dir(FileTreeNode::new(next_path.to_path_buf())?);
                 Ok(ActionResult::VALID)
@@ -118,8 +118,8 @@ lazy_static! {
                     .get_file_cursor()
                     .get_selected_file()
                     .as_ref()
-                    .map(|el| FileTreeNode::new(PathBuf::from(el)));
-                if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
+                    .map(|el| el.to_owned());
+                if let Some(selected_file_tree_node) = selected_file_tree_node {
                     // if selected_file_tree_node.
                     if selected_file_tree_node.is_dir() {
                         app_state.set_current_dir(selected_file_tree_node);
@@ -193,7 +193,7 @@ lazy_static! {
             String::from("select"),
             Box::new(|_, mode_controller, dir_items |{
                 if let Some(first_item_name) = dir_items.get(0) {
-                mode_controller.normal_mode_controller.get_file_cursor_mut().set_selected_file(Some(OsString::from(first_item_name.get_path().as_os_str())));
+                mode_controller.normal_mode_controller.get_file_cursor_mut().set_selected_file(Some(FileTreeNode::new(first_item_name.get_path_buf().to_path_buf())?));
                 }
                 mode_controller.search_mode_controller.clear();
                 mode_controller.set_current_mode(Mode::Normal);
