@@ -7,7 +7,6 @@ use crate::{
     AppState,
 };
 
-// // TODO: use phf instead
 #[derive(PartialEq)]
 pub(crate) enum ActionResult {
     VALID,
@@ -135,7 +134,6 @@ lazy_static! {
         m.insert(
             String::from("go_to_or_go_to_bottom"),
             Box::new(|_, mode_manager, modifier, dir_items| {
-                // TODO: decouple key sequences from the app state?
                 // if there is a specified line, go to it
                 if let Some(modifier) = modifier {
                     mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |i, items| {
@@ -149,7 +147,6 @@ lazy_static! {
                             None
                         }
                     })?;
-                    // TODO: maybe show an error message, e.g. INVALID(String) ?
                     Ok(ActionResult::VALID)
                 } else {
                     mode_manager.normal_mode_controller.change_file_cursor_index(dir_items, |_, items| {

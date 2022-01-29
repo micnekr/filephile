@@ -123,7 +123,6 @@ impl InputReader {
             .iter()
             .fold(String::from(""), |acc, el| {
                 if acc.is_empty() {
-                    // TODO: is there a more effecient method?
                     acc + el.to_string().as_str()
                 } else {
                     acc + format!(" {}", el).as_str()
@@ -143,7 +142,6 @@ impl InputReader {
 
                 // we can not add a movement after a verb, so fail in that case
                 if !self.verb_key_sequence.is_empty() {
-                    // TODO: maybe notify the user that this was an incorrect action
                     self.clear();
                 }
             } else {

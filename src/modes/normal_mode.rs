@@ -19,7 +19,7 @@ pub struct NormalModeController<'a> {
     pub(self) error_message: Option<&'a String>,
     pub(self) file_cursor: FileSelectionSingle,
     pub(self) default_styles: StyleSet,
-    pub(self) max_distance_from_cursor_to_bottom: usize,
+    pub(self) min_distance_from_cursor_to_bottom: usize,
     pub(self) has_been_modified: bool,
 }
 
@@ -45,8 +45,7 @@ impl<'a> NormalModeController<'a> {
             has_been_modified: false,
             file_cursor: FileSelectionSingle::new(cursor_styles),
             error_message: None,
-            // TODO: make this configurable
-            max_distance_from_cursor_to_bottom: 4,
+            min_distance_from_cursor_to_bottom: 4,
             default_styles,
         }
     }
@@ -103,12 +102,12 @@ impl<'a> ModeController<'a> for NormalModeController<'a> {
                     0
 
                 // Do not do anything if it can all be seen on one screen
-                } else if self.max_distance_from_cursor_to_bottom + index < height_of_list_available
+                } else if self.min_distance_from_cursor_to_bottom + index < height_of_list_available
                 {
                     0
                 // if the viewport is full and the cursor is close to the bottom, but there are still concealed items later on in the list
-                } else if dir_items.len() > index + self.max_distance_from_cursor_to_bottom {
-                    index + self.max_distance_from_cursor_to_bottom - height_of_list_available
+                } else if dir_items.len() > index + self.min_distance_from_cursor_to_bottom {
+                    index + self.min_distance_from_cursor_to_bottom - height_of_list_available
                 } else {
                     dir_items.len() - height_of_list_available
                 },

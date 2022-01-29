@@ -1,12 +1,7 @@
 mod normal_mode;
 mod search_mode;
 
-use std::{
-    cmp::Ordering,
-    ffi::{OsStr, OsString},
-    fs::File,
-    io::Read,
-};
+use std::{cmp::Ordering, fs::File, io::Read};
 
 use tui::{
     backend::Backend,
@@ -196,18 +191,15 @@ impl RecordedModifiable for ModesManager<'_> {
 pub fn create_preview<'a>(f: &FileTreeNode, block: Block<'a>) -> AllowedWidgets<'a> {
     // let extension = f.get_path_buf().extension().unwrap_or(OsStr::new(""));
 
-    let mut buffer = [0; preview_text_length]; // TODO: change the length
+    let mut buffer = [0; preview_text_length];
     let opened_file = File::open(f.get_path_buf()).ok();
 
-    let text: Option<String> = if let Some(Ok(n)) =
-        // TODO: do not be reading the file that frequently
-        opened_file
-            .map(|mut opened_file| opened_file.read(&mut buffer))
-    {
-        Some(String::from_utf8_lossy(&buffer[..n]).into_owned())
-    } else {
-        None
-    };
+    let text: Option<String> =
+        if let Some(Ok(n)) = opened_file.map(|mut opened_file| opened_file.read(&mut buffer)) {
+            Some(String::from_utf8_lossy(&buffer[..n]).into_owned())
+        } else {
+            None
+        };
 
     if let Some(text) = text {
         let para = Paragraph::new(text).block(block);

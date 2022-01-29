@@ -144,7 +144,6 @@ impl<'a> ModeController<'a> for SearchModeController<'a> {
             .filter(|el| el.score > 0)
             .collect();
 
-        // TODO: properly sort these ones, maybe with caching
         dir_items.sort_by(|a, b| {
             if a.score != b.score {
                 return b.score.cmp(&a.score);

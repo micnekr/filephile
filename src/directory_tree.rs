@@ -163,8 +163,6 @@ impl FileSelectionSingle {
             .position(|el| self.is_selected(&el))
             .or_else(|| {
                 // if the cursor can not be placed:
-                // TODO: do this
-                // app_state.is_urgent_update = true;
                 self.mark_as_modified();
                 self.selected_file = items
                     // get the first index

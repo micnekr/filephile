@@ -22,8 +22,6 @@ use tui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use crate::directory_tree::FileTreeNode;
 use crate::helper_types::ErrorPopup;
 
-// TODO: check that it works on windows
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // setup terminal
     crossterm::terminal::enable_raw_mode()?;
@@ -45,7 +43,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         file: Style::default()
             .bg(tui::style::Color::White)
             .fg(tui::style::Color::Black),
-        // TODO: some way to show symlinks + where they are going
         dir: Style::default()
             .bg(tui::style::Color::White)
             .fg(tui::style::Color::Rgb(50, 50, 200)),
@@ -135,7 +132,6 @@ fn run_loop<B: tui::backend::Backend>(
 
         let dir_items = modes_manager.transform_dir_items(dir_items);
 
-        // TODO: redraw on change
         if poll_result {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 // close the popup on a key press
@@ -166,7 +162,6 @@ fn run_loop<B: tui::backend::Backend>(
                                 modifier_key_sequence,
                                 &dir_items,
                             )?;
-                            // TODO: maybe tell them if there was an error
                             true
                         } else {
                             false
@@ -178,7 +173,6 @@ fn run_loop<B: tui::backend::Backend>(
                             &SEARCH_MODE_ACTION_MAP,
                         ) {
                             closure(&mut app_state, &mut modes_manager, &dir_items)?;
-                            // TODO: maybe tell them if there was an error
                             true
                         } else {
                             false
@@ -198,7 +192,6 @@ fn run_loop<B: tui::backend::Backend>(
                             .ok();
                         closure(&mut app_state, &mut modes_manager, modifier_key_sequence)?;
                         // clear the sequence if it was successful or not
-                        // TODO: maybe tell them if there was an error
                         true
                     } else {
                         false
@@ -229,14 +222,9 @@ fn run_loop<B: tui::backend::Backend>(
                         }
                     }
                 }
-                // if let Err(err) = handle_inputs(key, app_state) {
-                //     // TODO: see all places where there could be an error and set it
-                //     // app_state.set_err(err);
-                // }
             }
         } else {
             // Processes and draws the output
-            // TODO: maybe make is_urgent_update not need to be set specifically and be inferred from changes
             terminal.draw(|f| {
                 let f_size = f.size();
                 let bottom_text = modes_manager.get_bottom_text();
