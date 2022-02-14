@@ -1,1 +1,1 @@
-pub const preview_text_length: usize = 1000;
+pub const PREVIEW_TEXT_LENGTH: usize = 1000;

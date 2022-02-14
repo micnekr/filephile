@@ -9,7 +9,7 @@ use tui::{
     widgets::{Block, List, Paragraph},
 };
 
-use crate::{compile_time_settings::preview_text_length, directory_tree::FileTreeNode, StyleSet};
+use crate::{compile_time_settings::PREVIEW_TEXT_LENGTH, directory_tree::FileTreeNode, StyleSet};
 
 pub use self::{normal_mode::NormalModeController, search_mode::SearchModeController};
 
@@ -191,7 +191,7 @@ impl RecordedModifiable for ModesManager<'_> {
 pub fn create_preview<'a>(f: &FileTreeNode, block: Block<'a>) -> AllowedWidgets<'a> {
     // let extension = f.get_path_buf().extension().unwrap_or(OsStr::new(""));
 
-    let mut buffer = [0; preview_text_length];
+    let mut buffer = [0; PREVIEW_TEXT_LENGTH];
     let opened_file = File::open(f.get_path_buf()).ok();
 
     let text: Option<String> =
