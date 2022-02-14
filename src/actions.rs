@@ -114,7 +114,7 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<NormalModeActionNameMap> = Lazy::
         Box::new(|app_state, _, _, _| {
             let current_path = app_state.get_current_dir().get_path_buf();
             let next_path = current_path.parent().unwrap_or(&current_path);
-            app_state.set_current_dir(FileTreeNode::new(next_path.to_path_buf())?);
+            app_state.set_current_dir(FileTreeNode::new(next_path.to_path_buf()));
             Ok(ActionResult::VALID)
         }),
     );
@@ -208,7 +208,7 @@ pub(crate) static SEARCH_MODE_ACTION_MAP: Lazy<SearchModeActionNameMap> = Lazy::
                     .get_file_cursor_mut()
                     .set_selected_file(Some(FileTreeNode::new(
                         first_item_name.get_path_buf().to_path_buf(),
-                    )?));
+                    )));
             }
             mode_controller.search_mode_controller.clear();
             mode_controller.set_current_mode(Mode::Normal);

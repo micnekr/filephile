@@ -48,7 +48,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 impl FileTreeNode {
-    pub(crate) fn new(path: PathBuf) -> io::Result<FileTreeNode> {
+    pub(crate) fn new(path: PathBuf) -> FileTreeNode {
         let path = normalize_path(&path);
         let simple_os_string_name = path.file_name().map(OsString::from);
 
@@ -64,12 +64,12 @@ impl FileTreeNode {
 
         // get the file name
         let simple_name = simple_os_string_name.to_string_lossy().into_owned();
-        Ok(FileTreeNode {
+        FileTreeNode {
             is_dir: path.is_dir(),
             path_buf: path.to_path_buf(),
             // simple_os_string_name,
             simple_name,
-        })
+        }
     }
 
     pub(crate) fn get_simple_name(&self) -> &String {
@@ -98,7 +98,7 @@ impl FileTreeNode {
         let mut ret = Vec::new();
         for entry in read_dir(self.path_buf.clone())? {
             let resolved_entry = entry?;
-            ret.push(FileTreeNode::new(resolved_entry.path())?);
+            ret.push(FileTreeNode::new(resolved_entry.path()));
         }
         Ok(ret)
     }

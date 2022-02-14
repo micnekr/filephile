@@ -54,7 +54,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ])?;
 
     let modes_manager = ModesManager::new(default_styles, cursor_styles);
-    let app_state = AppState::new(FileTreeNode::new(env::current_dir()?.to_path_buf())?);
+    let app_state = AppState::new(FileTreeNode::new(
+        env::current_dir()
+            .expect("Could not get the current directory")
+            .to_path_buf(),
+    ));
     // create app and run it
     let res = run_loop(
         &mut terminal,
