@@ -6,7 +6,7 @@ use tui::{
 };
 
 use crate::{
-    directory_tree::{FileSelection, FileSelectionSingle, FileTreeNode},
+    directory_tree::{FileCursor, FileTreeNode},
     StyleSet,
 };
 
@@ -17,7 +17,7 @@ use super::{
 #[derive(Clone)]
 pub struct NormalModeController<'a> {
     pub(self) error_message: Option<&'a String>,
-    pub(self) file_cursor: FileSelectionSingle,
+    pub(self) file_cursor: FileCursor,
     pub(self) default_styles: StyleSet,
     pub(self) min_distance_from_cursor_to_bottom: usize,
     pub(self) has_been_modified: bool,
@@ -43,7 +43,7 @@ impl<'a> NormalModeController<'a> {
     pub fn new(default_styles: StyleSet, cursor_styles: StyleSet) -> Self {
         NormalModeController {
             has_been_modified: false,
-            file_cursor: FileSelectionSingle::new(cursor_styles),
+            file_cursor: FileCursor::new(cursor_styles),
             error_message: None,
             min_distance_from_cursor_to_bottom: 4,
             default_styles,
@@ -75,10 +75,10 @@ impl<'a> NormalModeController<'a> {
 
         Ok(())
     }
-    pub fn get_file_cursor_mut(&mut self) -> &mut FileSelectionSingle {
+    pub fn get_file_cursor_mut(&mut self) -> &mut FileCursor {
         &mut self.file_cursor
     }
-    pub fn get_file_cursor(&self) -> &FileSelectionSingle {
+    pub fn get_file_cursor(&self) -> &FileCursor {
         &self.file_cursor
     }
 }

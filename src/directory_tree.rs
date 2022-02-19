@@ -105,31 +105,13 @@ impl FileTreeNode {
 }
 
 #[derive(Clone)]
-pub struct FileSelectionSingle {
+pub struct FileCursor {
     pub(self) has_been_modified: bool,
     pub(self) selected_file: Option<FileTreeNode>,
     pub(self) styles: StyleSet,
 }
 
-pub(crate) trait FileSelection {
-    fn is_selected(&self, node: &FileTreeNode) -> bool;
-    fn get_styles(&self) -> &StyleSet;
-}
-
-impl FileSelection for FileSelectionSingle {
-    fn is_selected(&self, node: &FileTreeNode) -> bool {
-        if let Some(selected_file) = &self.selected_file {
-            selected_file.get_path_buf() == node.get_path_buf()
-        } else {
-            false
-        }
-    }
-    fn get_styles(&self) -> &StyleSet {
-        &self.styles
-    }
-}
-
-impl RecordedModifiable for FileSelectionSingle {
+impl RecordedModifiable for FileCursor {
     fn reset_modification_status(&mut self) {
         self.has_been_modified = false;
     }
@@ -142,9 +124,19 @@ impl RecordedModifiable for FileSelectionSingle {
     }
 }
 
-impl FileSelectionSingle {
+impl FileCursor {
+    pub(crate) fn is_under_cursor(&self, node: &FileTreeNode) -> bool {
+        if let Some(selected_file) = &self.selected_file {
+            selected_file.get_path_buf() == node.get_path_buf()
+        } else {
+            false
+        }
+    }
+    pub(crate) fn get_styles(&self) -> &StyleSet {
+        &self.styles
+    }
     pub(crate) fn new(styles: StyleSet) -> Self {
-        FileSelectionSingle {
+        FileCursor {
             has_been_modified: false,
             selected_file: None,
             styles,
@@ -160,7 +152,7 @@ impl FileSelectionSingle {
     ) -> Option<usize> {
         items
             .iter()
-            .position(|el| self.is_selected(&el))
+            .position(|el| self.is_under_cursor(&el))
             .or_else(|| {
                 // if the cursor can not be placed:
                 self.mark_as_modified();

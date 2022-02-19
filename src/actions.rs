@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use std::{collections::BTreeMap, ffi::OsString, fs::File, io, path::PathBuf};
+use std::{collections::BTreeMap, io};
 
 use crate::{
     directory_tree::FileTreeNode,
@@ -114,7 +114,8 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<NormalModeActionNameMap> = Lazy::
         Box::new(|app_state, _, _, _| {
             let current_path = app_state.get_current_dir().get_path_buf();
             let next_path = current_path.parent().unwrap_or(&current_path);
-            app_state.set_current_dir(FileTreeNode::new(next_path.to_path_buf()));
+            let new_dir = next_path.to_path_buf();
+            app_state.set_current_dir(FileTreeNode::new(new_dir));
             Ok(ActionResult::VALID)
         }),
     );
