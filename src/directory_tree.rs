@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::fmt::Debug;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
@@ -6,15 +7,9 @@ use std::fs::read_dir;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 
-use crate::modes::RecordedModifiable;
-use crate::StyleSet;
-
 #[derive(Clone)]
 pub struct FileTreeNode {
-    // Make it impossible to modify it from the outside
     pub(self) path_buf: PathBuf,
-    pub(self) is_dir: bool,
-    // pub(self) simple_os_string_name: OsString,
     pub(self) simple_name: String,
 }
 
@@ -65,18 +60,24 @@ impl FileTreeNode {
         // get the file name
         let simple_name = simple_os_string_name.to_string_lossy().into_owned();
         FileTreeNode {
-            is_dir: path.is_dir(),
             path_buf: path.to_path_buf(),
-            // simple_os_string_name,
             simple_name,
         }
+    }
+
+    pub(crate) fn get_path_buf(&self) -> &PathBuf {
+        &self.path_buf
     }
 
     pub(crate) fn get_simple_name(&self) -> &String {
         &self.simple_name
     }
 
-    pub(crate) fn get_score(&self, query: &str) -> i64 {
+    pub(crate) fn is_dir(&self) -> bool {
+        self.path_buf.is_dir()
+    }
+
+    pub(crate) fn compute_score(&self, query: &str) -> i64 {
         let match_data =
             SkimMatcherV2::default()
                 .smart_case()
@@ -87,14 +88,7 @@ impl FileTreeNode {
         }
     }
 
-    pub(crate) fn get_path_buf(&self) -> &PathBuf {
-        &self.path_buf
-    }
-    pub(crate) fn is_dir(&self) -> bool {
-        self.is_dir
-    }
-
-    pub(crate) fn get_files(&self) -> io::Result<Vec<FileTreeNode>> {
+    pub(crate) fn list_files(&self) -> io::Result<Vec<FileTreeNode>> {
         let mut ret = Vec::new();
         for entry in read_dir(self.path_buf.clone())? {
             let resolved_entry = entry?;
@@ -103,72 +97,13 @@ impl FileTreeNode {
         Ok(ret)
     }
 }
-
-#[derive(Clone)]
-pub struct FileCursor {
-    pub(self) has_been_modified: bool,
-    pub(self) selected_file: Option<FileTreeNode>,
-    pub(self) styles: StyleSet,
-}
-
-impl RecordedModifiable for FileCursor {
-    fn reset_modification_status(&mut self) {
-        self.has_been_modified = false;
-    }
-
-    fn mark_as_modified(&mut self) {
-        self.has_been_modified = true;
-    }
-    fn has_been_modified(&self) -> bool {
-        self.has_been_modified
-    }
-}
-
-impl FileCursor {
-    pub(crate) fn is_under_cursor(&self, node: &FileTreeNode) -> bool {
-        if let Some(selected_file) = &self.selected_file {
-            selected_file.get_path_buf() == node.get_path_buf()
-        } else {
-            false
-        }
-    }
-    pub(crate) fn get_styles(&self) -> &StyleSet {
-        &self.styles
-    }
-    pub(crate) fn new(styles: StyleSet) -> Self {
-        FileCursor {
-            has_been_modified: false,
-            selected_file: None,
-            styles,
-        }
-    }
-    pub(crate) fn set_selected_file(&mut self, selected_file: Option<FileTreeNode>) {
-        self.mark_as_modified();
-        self.selected_file = selected_file;
-    }
-    pub(crate) fn get_file_cursor_index_or_reset<'a>(
-        &'a mut self,
-        items: &Vec<FileTreeNode>,
-    ) -> Option<usize> {
+pub(crate) fn get_file_cursor_index(
+    selected_file: &Option<FileTreeNode>,
+    items: &Vec<FileTreeNode>,
+) -> Option<usize> {
+    selected_file.as_ref().and_then(|selected_file| {
         items
             .iter()
-            .position(|el| self.is_under_cursor(&el))
-            .or_else(|| {
-                // if the cursor can not be placed:
-                self.mark_as_modified();
-                self.selected_file = items
-                    // get the first index
-                    .first()
-                    .map_or(None, |el| Some(el.to_owned()));
-                // if the directory is empty, skip it. Otherwise, go to the first element
-                if self.selected_file.is_some() {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
-    }
-    pub(crate) fn get_selected_file(&self) -> &Option<FileTreeNode> {
-        &self.selected_file
-    }
+            .position(|el| selected_file.path_buf == el.path_buf)
+    })
 }

@@ -1,20 +1,87 @@
-use crate::{actions::NameMap, directory_tree::FileTreeNode};
+use crate::{
+    actions::{ActionClosure, ActionNameMap},
+    directory_tree::{get_file_cursor_index, FileTreeNode},
+    modes::Mode,
+};
 use crossterm::event::KeyCode;
-use std::{collections::BTreeMap, fs, io, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs, io,
+    ops::{Deref, DerefMut},
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 use tui::style::Style;
 
-use crate::modes::RecordedModifiable;
-
 type StringMap = BTreeMap<String, String>;
 
-pub struct AppState {
-    pub(self) has_been_modified: bool,
-    pub(self) current_dir: FileTreeNode,
-    pub(self) input_reader: InputReader, // is_urgent_update: bool,
+pub struct TrackedModifiable<T> {
+    pub(self) val: T,
+    pub(self) is_modified: bool,
+}
 
-    pub(self) error_popup: Option<ErrorPopup>,
+impl<T> TrackedModifiable<T> {
+    pub fn new(val: T) -> Self {
+        TrackedModifiable {
+            val,
+            is_modified: false,
+        }
+    }
+
+    pub fn is_modified(&self) -> bool {
+        self.is_modified
+    }
+
+    pub fn reset_modified_flag(&mut self) {
+        self.is_modified = false;
+    }
+}
+
+impl<T> TrackedModifiable<T> {
+    pub fn get_mut(&mut self) -> &mut T {
+        self.is_modified = true;
+        &mut self.val
+    }
+}
+
+impl<T> Deref for TrackedModifiable<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.val
+    }
+}
+
+pub struct NormalModeState;
+pub struct SearchModeState {
+    pub search_string: String,
+}
+
+impl Default for NormalModeState {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
+impl Default for SearchModeState {
+    fn default() -> Self {
+        Self {
+            search_string: String::new(),
+        }
+    }
+}
+
+pub struct AppState {
+    pub mode: Mode,
+    pub current_dir: FileTreeNode,
+    pub input_reader: InputReader,
+    pub error_popup: Option<ErrorPopup>,
+    pub error_message_line: Option<String>,
+    pub selected_file: Option<FileTreeNode>,
+
+    pub normal_mode_state: NormalModeState,
+    pub search_mode_state: SearchModeState,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -23,6 +90,7 @@ pub struct AppSettings {
     pub global_key_bindings: StringMap,
     pub normal_mode_key_bindings: StringMap,
     pub search_mode_key_bindings: StringMap,
+    pub min_distance_from_cursor_to_bottom: usize,
 }
 
 #[derive(Clone)]
@@ -32,8 +100,8 @@ pub struct StyleSet {
 }
 
 pub struct InputReader {
-    modifier_key_sequence: String,
-    verb_key_sequence: Vec<String>,
+    pub modifier_key_sequence: String,
+    pub verb_key_sequence: Vec<String>,
 }
 
 pub struct ErrorPopup {
@@ -60,13 +128,17 @@ impl AppSettings {
 impl AppState {
     pub fn new(current_dir: FileTreeNode) -> Self {
         Self {
+            mode: Mode::Normal,
             current_dir,
             input_reader: InputReader {
                 modifier_key_sequence: String::new(),
                 verb_key_sequence: Vec::new(),
             },
             error_popup: None,
-            has_been_modified: false,
+            error_message_line: None,
+            selected_file: None,
+            normal_mode_state: NormalModeState::default(),
+            search_mode_state: SearchModeState::default()
             // NOTE: this would look good for multi-selection, maybe we should use it in the future
             // file: Style::default()
             //     .bg(tui::style::Color::DarkGray)
@@ -76,48 +148,39 @@ impl AppState {
             //     .fg(tui::style::Color::LightBlue),
         }
     }
-    pub fn set_current_dir(&mut self, n: FileTreeNode) {
-        self.mark_as_modified();
-        self.current_dir = n;
+    pub fn copy_input_to_search_string(&mut self) {
+        let input_string = &self.input_reader.verb_key_sequence.concat();
+        self.search_mode_state.search_string.push_str(input_string);
     }
-    pub fn get_current_dir(&self) -> &FileTreeNode {
-        &self.current_dir
-    }
-    pub fn set_error_popup(&mut self, e: Option<ErrorPopup>) {
-        self.mark_as_modified();
-        self.error_popup = e;
-    }
-    pub fn get_error_popup(&self) -> &Option<ErrorPopup> {
-        &self.error_popup
-    }
-    pub fn get_input_reader(&mut self) -> &mut InputReader {
-        &mut self.input_reader
-    }
-}
+    pub fn set_file_cursor_highlight_index<F: FnOnce(usize, usize) -> usize>(
+        &mut self,
+        dir_items: &Vec<FileTreeNode>,
+        get_new_index: F,
+    ) {
+        let items_num = dir_items.len();
+        // avoid something % 0
+        let file_cursor_highlight_index = if items_num == 0 {
+            0
+        } else {
+            let file_cursor_highlight_index =
+                get_file_cursor_index(&self.selected_file, dir_items).unwrap_or(0);
+            // wrapping around
+            get_new_index(file_cursor_highlight_index, items_num).rem_euclid(items_num)
+        };
 
-impl RecordedModifiable for AppState {
-    fn reset_modification_status(&mut self) {
-        self.has_been_modified = false;
+        self.selected_file = dir_items
+            .get(file_cursor_highlight_index)
+            .map(|e| e.to_owned());
     }
-
-    fn mark_as_modified(&mut self) {
-        self.has_been_modified = true;
+    pub fn close_error_popup(&mut self) {
+        self.error_popup = None;
     }
-
-    fn has_been_modified(&self) -> bool {
-        self.has_been_modified
+    pub fn error_popup(&mut self, title: String, body: String) {
+        self.error_popup = Some(ErrorPopup::new(title, body));
     }
 }
 
 impl InputReader {
-    pub fn get_verb_key_sequence(&self) -> &Vec<String> {
-        &self.verb_key_sequence
-    }
-
-    pub fn get_modifier_key_sequence(&self) -> &String {
-        &self.modifier_key_sequence
-    }
-
     fn get_human_friendly_verb_key_sequence(&self) -> String {
         self.verb_key_sequence
             .iter()
@@ -134,10 +197,10 @@ impl InputReader {
         self.verb_key_sequence.clear();
     }
 
-    pub fn record_key_in_state(&mut self, key: KeyCode, allow_modifiers: bool) {
+    pub fn digest(&mut self, key: KeyCode, force_pushing_as_verb: bool) {
         if let KeyCode::Char(character) = key {
             // if it is a modifier
-            if allow_modifiers && character.is_digit(10) {
+            if !force_pushing_as_verb && character.is_digit(10) {
                 self.modifier_key_sequence.push(character);
 
                 // we can not add a movement after a verb, so fail in that case
@@ -156,11 +219,11 @@ impl InputReader {
         }
     }
 
-    pub fn get_action_closure<'a, MapValueType>(
+    pub fn get_closure_by_key_bindings<'a>(
         &self,
         key_to_action_mapping: &'a BTreeMap<String, String>,
-        action_to_closure_mapping: &'a NameMap<MapValueType>,
-    ) -> Option<&'a MapValueType> {
+        action_to_closure_mapping: &'a ActionNameMap,
+    ) -> Option<&'a ActionClosure> {
         if let Some(action_name) =
             key_to_action_mapping.get(&self.get_human_friendly_verb_key_sequence())
         {
@@ -169,13 +232,11 @@ impl InputReader {
         return None;
     }
 
-    pub fn check_for_possible_extensions(
-        &self,
-        possiblities: Vec<&BTreeMap<String, String>>,
-    ) -> bool {
+    pub fn check_incomplete_commands(&self, possiblities: Vec<&BTreeMap<String, String>>) -> bool {
+        let current_sequence = &self.get_human_friendly_verb_key_sequence();
         possiblities.iter().any(|map| {
             map.keys()
-                .any(|string| string.starts_with(&self.get_human_friendly_verb_key_sequence()))
+                .any(|string| string.starts_with(current_sequence))
         })
     }
 }

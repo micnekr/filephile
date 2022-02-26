@@ -1,219 +1,191 @@
 use once_cell::sync::Lazy;
-use std::{collections::BTreeMap, io};
+use std::collections::BTreeMap;
 
 use crate::{
-    directory_tree::FileTreeNode,
-    modes::{Mode, ModesManager},
+    directory_tree::{get_file_cursor_index, FileTreeNode},
+    helper_types::{NormalModeState, SearchModeState, TrackedModifiable},
+    modes::Mode,
     AppState,
 };
 
 #[derive(PartialEq)]
-pub(crate) enum ActionResult {
+pub enum ActionResult {
     VALID,
     INVALID,
 }
 
-pub(crate) type NameMap<Action> = BTreeMap<String, Action>;
-type GlobalActionNameMap = NameMap<
-    Box<
-        dyn Fn(&mut AppState, &mut ModesManager, Option<usize>) -> io::Result<ActionResult>
-            + Sync
-            + Send
-            + 'static,
-    >,
->;
-type NormalModeActionNameMap = NameMap<
-    Box<
-        dyn Fn(
-                &mut AppState,
-                &mut ModesManager,
-                Option<usize>,
-                &Vec<FileTreeNode>,
-            ) -> io::Result<ActionResult>
-            + Sync
-            + Send
-            + 'static,
-    >,
->;
+pub struct ActionData<'a> {
+    app_state: &'a mut TrackedModifiable<AppState>,
+    modifier: Option<usize>,
+    dir_items: &'a Vec<FileTreeNode>,
+}
 
-type SearchModeActionNameMap = NameMap<
-    Box<
-        dyn Fn(&mut AppState, &mut ModesManager, &Vec<FileTreeNode>) -> io::Result<ActionResult>
-            + Sync
-            + Send
-            + 'static,
-    >,
->;
+impl<'a> ActionData<'a> {
+    pub fn new(
+        app_state: &'a mut TrackedModifiable<AppState>,
+        modifier: Option<usize>,
+        dir_items: &'a Vec<FileTreeNode>,
+    ) -> Self {
+        ActionData {
+            app_state,
+            modifier,
+            dir_items,
+        }
+    }
+}
 
-pub(crate) static GLOBAL_ACTION_MAP: Lazy<GlobalActionNameMap> = Lazy::new(|| {
-    let mut m: GlobalActionNameMap = BTreeMap::new();
+pub type ActionNameMap = BTreeMap<String, ActionClosure>;
+
+pub type ActionClosure = Box<dyn Fn(ActionData) -> ActionResult + Sync + Send + 'static>;
+
+pub(crate) static GLOBAL_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let mut m: ActionNameMap = BTreeMap::new();
     m.insert(
         String::from("quit"),
-        Box::new(|_, mode_manager, _| {
-            mode_manager.set_current_mode(Mode::Quitting);
-            // app_state.is_urgent_update = true;
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            v.app_state.get_mut().mode = Mode::Quitting;
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("normal_mode"),
-        Box::new(|_, mode_manager, _| {
-            mode_manager.search_mode_controller.clear();
-            mode_manager.set_current_mode(Mode::Normal);
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            // reset the normal mode
+            v.app_state.get_mut().normal_mode_state = NormalModeState::default();
+
+            v.app_state.get_mut().mode = Mode::Normal;
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("search_mode"),
-        Box::new(|_, mode_manager, _| {
-            mode_manager.set_current_mode(Mode::Search);
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            // reset the search mode
+            v.app_state.get_mut().search_mode_state = SearchModeState::default();
+
+            v.app_state.get_mut().mode = Mode::Search;
+            ActionResult::VALID
         }),
     );
     m
 });
-pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<NormalModeActionNameMap> = Lazy::new(|| {
-    let mut m: NormalModeActionNameMap = BTreeMap::new();
-    m.insert(
-        String::from("noop"),
-        Box::new(|_, _, _, _| Ok(ActionResult::VALID)),
-    );
+pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let mut m: ActionNameMap = BTreeMap::new();
+    m.insert(String::from("noop"), Box::new(|_| ActionResult::VALID));
     m.insert(
         String::from("down"),
-        Box::new(|_, mode_manager, modifier, dir_items| {
-            mode_manager
-                .normal_mode_controller
-                .change_file_cursor_index(dir_items, |i, items| {
-                    if let Some(i) = i {
-                        Some((i + modifier.unwrap_or(1)).rem_euclid(items.len()))
-                    } else {
-                        None
-                    }
-                })?;
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            v.app_state
+                .get_mut()
+                .set_file_cursor_highlight_index(v.dir_items, |i, _| i + v.modifier.unwrap_or(1));
+
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("up"),
-        Box::new(|_, mode_manager, modifier, dir_items| {
-            // Add the length to make sure that there is no overflow
-            mode_manager
-                .normal_mode_controller
-                .change_file_cursor_index(dir_items, |i, items| {
-                    if let Some(i) = i {
-                        Some((items.len() + i - modifier.unwrap_or(1)).rem_euclid(items.len()))
-                    } else {
-                        None
-                    }
-                })?;
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            v.app_state
+                .get_mut()
+                .set_file_cursor_highlight_index(v.dir_items, |i, dir_items| {
+                    // make sure that we do not go into the negatives because of overflow
+                    dir_items + i - v.modifier.unwrap_or(1)
+                });
+
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("left"),
-        Box::new(|app_state, _, _, _| {
-            let current_path = app_state.get_current_dir().get_path_buf();
+        Box::new(|v| {
+            let current_path = v.app_state.current_dir.get_path_buf();
             let next_path = current_path.parent().unwrap_or(&current_path);
             let new_dir = next_path.to_path_buf();
-            app_state.set_current_dir(FileTreeNode::new(new_dir));
-            Ok(ActionResult::VALID)
+            v.app_state.get_mut().current_dir = FileTreeNode::new(new_dir);
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("right"),
-        Box::new(|app_state, mode_manager, _, _| {
-            let selected_file_tree_node = mode_manager
-                .normal_mode_controller
-                .get_file_cursor()
-                .get_selected_file()
-                .as_ref()
-                .map(|el| el.to_owned());
+        Box::new(|v| {
+            let selected_file_tree_node = &v.app_state.selected_file;
             if let Some(selected_file_tree_node) = selected_file_tree_node {
                 // if selected_file_tree_node.
                 if selected_file_tree_node.is_dir() {
-                    app_state.set_current_dir(selected_file_tree_node);
-                    Ok(ActionResult::VALID)
+                    v.app_state.get_mut().current_dir = selected_file_tree_node.clone();
+                    ActionResult::VALID
                 } else {
-                    Ok(ActionResult::INVALID)
+                    ActionResult::INVALID
                 }
             } else {
-                Ok(ActionResult::INVALID)
+                ActionResult::INVALID
             }
         }),
     );
     m.insert(
         String::from("go_to_or_go_to_bottom"),
-        Box::new(|_, mode_manager, modifier, dir_items| {
+        Box::new(|v| {
             // if there is a specified line, go to it
-            if let Some(modifier) = modifier {
-                mode_manager
-                    .normal_mode_controller
-                    .change_file_cursor_index(dir_items, |i, items| {
-                        if let Some(i) = i {
-                            Some(if modifier > items.len() {
-                                i
-                            } else {
-                                modifier - 1 // to convert it into an index
-                            })
-                        } else {
-                            None
-                        }
-                    })?;
-                Ok(ActionResult::VALID)
+            if let Some(modifier) = v.modifier {
+                v.app_state.get_mut().set_file_cursor_highlight_index(
+                    v.dir_items,
+                    |_, num_items| {
+                        (modifier - 1).clamp(0, num_items - 1) // to convert it into an index
+                    },
+                );
+                ActionResult::VALID
             } else {
-                mode_manager
-                    .normal_mode_controller
-                    .change_file_cursor_index(dir_items, |_, items| match items.len() {
-                        0 => None,
-
-                        _ => Some(items.len() - 1),
-                    })?;
-                Ok(ActionResult::VALID)
+                v.app_state
+                    .get_mut()
+                    .set_file_cursor_highlight_index(v.dir_items, |_, num_items| num_items - 1);
+                ActionResult::VALID
             }
         }),
     );
     m.insert(
         String::from("go_to_top"),
-        Box::new(|_, mode_manager, _, dir_items| {
-            mode_manager
-                .normal_mode_controller
-                .change_file_cursor_index(dir_items, |_, _| Some(0))?;
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            v.app_state
+                .get_mut()
+                .set_file_cursor_highlight_index(v.dir_items, |_, _| 0);
+            ActionResult::VALID
         }),
     );
     m
 });
 
-pub(crate) static SEARCH_MODE_ACTION_MAP: Lazy<SearchModeActionNameMap> = Lazy::new(|| {
-    let mut m: SearchModeActionNameMap = BTreeMap::new();
+pub(crate) static SEARCH_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let mut m: ActionNameMap = BTreeMap::new();
     m.insert(
         String::from("noop"),
-        Box::new(|app_state, mode_controller, _| {
-            mode_controller.search_mode_controller.move_input(app_state);
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            // push the new typed characters
+            v.app_state.get_mut().copy_input_to_search_string();
+            v.app_state.get_mut().input_reader.clear();
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("delete_last_char"),
-        Box::new(|_, mode_controller, _| {
-            mode_controller.search_mode_controller.delete_last_char();
-            Ok(ActionResult::VALID)
+        Box::new(|v| {
+            v.app_state.get_mut().search_mode_state.search_string.pop();
+
+            ActionResult::VALID
         }),
     );
     m.insert(
         String::from("select"),
-        Box::new(|_, mode_controller, dir_items| {
-            if let Some(first_item_name) = dir_items.get(0) {
-                mode_controller
-                    .normal_mode_controller
-                    .get_file_cursor_mut()
-                    .set_selected_file(Some(FileTreeNode::new(
-                        first_item_name.get_path_buf().to_path_buf(),
-                    )));
+        Box::new(|v| {
+            if let Some(first_item) = v.dir_items.get(0) {
+                v.app_state.get_mut().selected_file = Some(first_item.to_owned());
             }
-            mode_controller.search_mode_controller.clear();
-            mode_controller.set_current_mode(Mode::Normal);
-            Ok(ActionResult::VALID)
+
+            v.app_state.get_mut().normal_mode_state = NormalModeState::default();
+            v.app_state.get_mut().search_mode_state = SearchModeState::default();
+
+            v.app_state.get_mut().mode = Mode::Normal;
+
+            ActionResult::VALID
         }),
     );
 

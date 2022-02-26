@@ -1,4 +1,4 @@
-preview_text_length = 100
+min_distance_from_cursor_to_bottom = 4
 
 [global_key_bindings]
 q = "quit"
