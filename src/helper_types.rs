@@ -3,16 +3,18 @@ use crate::{
     directory_tree::{get_file_cursor_index, FileTreeNode},
     modes::Mode,
 };
-use crossterm::event::KeyCode;
+use crossterm::{event::KeyCode, terminal};
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
-    fs, io,
+    fs,
+    io::{self, Stdout},
     ops::{Deref, DerefMut},
     path::Path,
 };
 
 use serde::{Deserialize, Serialize};
-use tui::style::Style;
+use tui::{backend::CrosstermBackend, style::Style, Terminal};
 
 type StringMap = BTreeMap<String, String>;
 
@@ -91,6 +93,7 @@ pub struct AppSettings {
     pub normal_mode_key_bindings: StringMap,
     pub search_mode_key_bindings: StringMap,
     pub min_distance_from_cursor_to_bottom: usize,
+    pub default_file_editor_command: Vec<String>,
 }
 
 #[derive(Clone)]

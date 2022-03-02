@@ -5,6 +5,7 @@ mod helper_types;
 mod modes;
 
 use std::env;
+use std::io::Stdout;
 use std::{
     io,
     time::{Duration, Instant},
@@ -15,14 +16,17 @@ use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
 use helper_types::{AppSettings, AppState, NormalModeState, SearchModeState, StyleSet};
 use modes::{get_file_text_preview, Mode};
-use tui::backend::Backend;
+use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::Style;
-use tui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
+use tui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use tui::Terminal;
 
 use crate::directory_tree::FileTreeNode;
 use crate::helper_types::TrackedModifiable;
 use crate::modes::cmp_by_dir_and_path;
+
+pub type CustomTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AppSettings::load_config(vec![
@@ -30,25 +34,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "/usr/share/fphile/global_config.toml",
     ])?;
 
+    let current_dir = FileTreeNode::new(
+        env::current_dir()
+            .expect("Could not get the current directory")
+            .to_path_buf(),
+    );
+
+    assert!(
+        current_dir.is_dir(),
+        "The current directory should be a directory"
+    );
+
     // setup terminal
-    crossterm::terminal::enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = tui::backend::CrosstermBackend::new(stdout);
+    let backend = tui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = tui::Terminal::new(backend)?;
+
+    let app_state = TrackedModifiable::new(AppState::new(current_dir));
+    enter_captured_mode(&mut terminal).expect("Could not capture the terminal");
 
     // create app and run it
     let res = run_loop(
+        app_state,
         &mut terminal,
-        FileTreeNode::new(
-            env::current_dir()
-                .expect("Could not get the current directory")
-                .to_path_buf(),
-        ),
         Duration::from_millis(config.render_timeout.unwrap_or(250)),
         config,
     );
 
+    exit_captured_mode(&mut terminal).expect("Could not capture the terminal");
+
+    if let Err(err) = res {
+        println!("Exiting because of an error: {:?}", err)
+    }
+
+    Ok(())
+}
+
+pub fn enter_captured_mode(terminal: &mut CustomTerminal) -> io::Result<()> {
+    crossterm::execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+    crossterm::terminal::enable_raw_mode()?;
+    terminal.hide_cursor()?;
+    // make the terminal redraw everything on the next draw to get rid of the artifacts
+    terminal.clear()?;
+    Ok(())
+}
+
+pub fn exit_captured_mode(terminal: &mut CustomTerminal) -> io::Result<()> {
     // restore terminal
     crossterm::terminal::disable_raw_mode()?;
     crossterm::execute!(
@@ -57,27 +87,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         crossterm::event::DisableMouseCapture
     )?;
     terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("Exiting because of an error: {:?}", err)
-    }
-
     Ok(())
 }
-fn run_loop<B: tui::backend::Backend>(
-    terminal: &mut tui::Terminal<B>,
-    current_dir: FileTreeNode,
+
+fn run_loop(
+    mut app_state: TrackedModifiable<AppState>,
+    terminal: &mut CustomTerminal,
     tick_rate: Duration,
     config: AppSettings,
 ) -> io::Result<()> {
-    assert!(
-        current_dir.is_dir(),
-        "The current directory should be a directory"
-    );
-
     let mut last_tick = Instant::now();
-
-    let mut app_state = TrackedModifiable::new(AppState::new(current_dir));
 
     loop {
         if app_state.mode == Mode::Quitting {
@@ -158,7 +177,7 @@ fn run_loop<B: tui::backend::Backend>(
         if crossterm::event::poll(timeout)? {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 // handle inputs
-                inputs(key.code, dir_items, &config, &mut app_state);
+                inputs(key.code, dir_items, &config, &mut app_state, terminal);
             }
         } else {
             // Processes and draws the output
@@ -176,6 +195,7 @@ pub(self) fn inputs(
     dir_items: Vec<FileTreeNode>,
     config: &AppSettings,
     app_state: &mut TrackedModifiable<AppState>,
+    terminal: &mut CustomTerminal,
 ) {
     // close the popup on a key press
     if let Some(_) = app_state.error_popup {
@@ -218,7 +238,7 @@ pub(self) fn inputs(
         });
 
     if let Some(closure) = closure_option {
-        let action_data = ActionData::new(app_state, modifier, &dir_items);
+        let action_data = ActionData::new(config, terminal, app_state, modifier, &dir_items);
         let action_result = closure(action_data);
 
         // whether it was successful or not, clear the input state

@@ -1,11 +1,17 @@
+use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
+};
 use once_cell::sync::Lazy;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fs::canonicalize, io};
 
 use crate::{
     directory_tree::{get_file_cursor_index, FileTreeNode},
-    helper_types::{NormalModeState, SearchModeState, TrackedModifiable},
+    enter_captured_mode, exit_captured_mode,
+    helper_types::{AppSettings, NormalModeState, SearchModeState, TrackedModifiable},
     modes::Mode,
-    AppState,
+    AppState, CustomTerminal,
 };
 
 #[derive(PartialEq)]
@@ -15,6 +21,8 @@ pub enum ActionResult {
 }
 
 pub struct ActionData<'a> {
+    config: &'a AppSettings,
+    terminal: &'a mut CustomTerminal,
     app_state: &'a mut TrackedModifiable<AppState>,
     modifier: Option<usize>,
     dir_items: &'a Vec<FileTreeNode>,
@@ -22,11 +30,15 @@ pub struct ActionData<'a> {
 
 impl<'a> ActionData<'a> {
     pub fn new(
+        config: &'a AppSettings,
+        terminal: &'a mut CustomTerminal,
         app_state: &'a mut TrackedModifiable<AppState>,
         modifier: Option<usize>,
         dir_items: &'a Vec<FileTreeNode>,
     ) -> Self {
         ActionData {
+            config,
+            terminal,
             app_state,
             modifier,
             dir_items,
@@ -110,11 +122,44 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
         Box::new(|v| {
             let selected_file_tree_node = &v.app_state.selected_file;
             if let Some(selected_file_tree_node) = selected_file_tree_node {
-                // if selected_file_tree_node.
+                // open the directory
                 if selected_file_tree_node.is_dir() {
                     v.app_state.get_mut().current_dir = selected_file_tree_node.clone();
                     ActionResult::VALID
+                    // open the file
                 } else {
+                    // move to a different screen
+                    exit_captured_mode(v.terminal).expect("Could not leave terminal capture");
+                    // NOTE: current_dir()'s behaviour is up to the implementation if the path is relative,
+                    // So we need to make it canonical
+                    let relative_path_current_dir = v.app_state.current_dir.get_path_buf();
+                    let panic_message = format!(
+                        r#"Encountered an error while tried to convert "{}" to an absolute path"#,
+                        relative_path_current_dir.as_os_str().to_string_lossy()
+                    );
+                    let absolute_path_current_dir =
+                        canonicalize(relative_path_current_dir).expect(&panic_message);
+                    let mut file_editor_options = v.config.default_file_editor_command.iter();
+                    let mut command = std::process::Command::new(
+                        file_editor_options
+                            .next()
+                            .expect("Found empty arguments for the default file editor"),
+                    );
+                    command.current_dir(absolute_path_current_dir);
+
+                    let file_name = selected_file_tree_node.get_simple_name();
+                    for file_editor_option in file_editor_options {
+                        let file_editor_option = file_editor_option.replace("<FILE>", &file_name);
+                        command.arg(file_editor_option);
+                    }
+                    command
+                        .spawn()
+                        .expect("Error: Failed to run an editor")
+                        .wait()
+                        .expect("Error: Editor returned a non-zero status");
+
+                    enter_captured_mode(v.terminal)
+                        .expect("Could not re-enter the terminal capture");
                     ActionResult::INVALID
                 }
             } else {
