@@ -97,12 +97,14 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
     m.insert(
         String::from("up"),
         Box::new(|v| {
-            v.app_state
-                .get_mut()
-                .set_file_cursor_highlight_index(v.dir_items, |i, dir_items| {
+            v.app_state.get_mut().set_file_cursor_highlight_index(
+                v.dir_items,
+                |i, dir_items_num| {
                     // make sure that we do not go into the negatives because of overflow
-                    dir_items + i - v.modifier.unwrap_or(1)
-                });
+                    // rem_euclid makes sure that we do not have a number less than or equal to dir_items_num - 1
+                    dir_items_num + i - v.modifier.unwrap_or(1).rem_euclid(dir_items_num)
+                },
+            );
 
             ActionResult::VALID
         }),

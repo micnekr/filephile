@@ -74,7 +74,7 @@ pub fn enter_captured_mode(terminal: &mut CustomTerminal) -> io::Result<()> {
     crossterm::execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     crossterm::terminal::enable_raw_mode()?;
     terminal.hide_cursor()?;
-    // make the terminal redraw everything on the next draw to get rid of the artifacts
+    // make the terminal redraw everything on the next draw to get rid of the artefacts
     terminal.clear()?;
     Ok(())
 }
@@ -119,7 +119,7 @@ fn run_loop(
                     app_state.get_mut().error_popup(
                         String::from("Permission denied"),
                         String::from(
-                            "You do not have the permissions to access this folder/directory",
+                            "You do not have the permissions to access this folder or directory",
                         ),
                     );
                 }
@@ -241,6 +241,7 @@ pub(self) fn inputs(
     if let Some(closure) = closure_option {
         let action_data = ActionData::new(config, terminal, app_state, modifier, &dir_items);
         let action_result = closure(action_data);
+        // set the error message if could not complete the action
         if let ActionResult::INVALID(error_message) = action_result {
             app_state.get_mut().error_message_line = Some(error_message);
         }
