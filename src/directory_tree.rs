@@ -1,5 +1,4 @@
 use std::ffi::OsString;
-use std::fmt::Debug;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 

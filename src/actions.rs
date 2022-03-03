@@ -1,13 +1,8 @@
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
-};
 use once_cell::sync::Lazy;
-use std::{collections::BTreeMap, fs::canonicalize, io};
+use std::{collections::BTreeMap, fs::canonicalize};
 
 use crate::{
-    directory_tree::{get_file_cursor_index, FileTreeNode},
+    directory_tree::FileTreeNode,
     enter_captured_mode, exit_captured_mode,
     helper_types::{AppSettings, NormalModeState, SearchModeState, TrackedModifiable},
     modes::Mode,

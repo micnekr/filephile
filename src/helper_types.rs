@@ -3,18 +3,17 @@ use crate::{
     directory_tree::{get_file_cursor_index, FileTreeNode},
     modes::Mode,
 };
-use crossterm::{event::KeyCode, terminal};
+use crossterm::event::KeyCode;
 use std::{
-    cell::RefCell,
     collections::BTreeMap,
     fs,
-    io::{self, Stdout},
-    ops::{Deref, DerefMut},
+    io::{self, Error, ErrorKind},
+    ops::Deref,
     path::Path,
 };
 
 use serde::{Deserialize, Serialize};
-use tui::{backend::CrosstermBackend, style::Style, Terminal};
+use tui::style::Style;
 
 type StringMap = BTreeMap<String, String>;
 
@@ -117,8 +116,8 @@ impl AppSettings {
         let config = paths
             .iter()
             .find_map(|path| fs::read_to_string(path).ok())
-            .ok_or(io::Error::new(
-                io::ErrorKind::NotFound,
+            .ok_or(Error::new(
+                ErrorKind::NotFound,
                 "Could not find a config file",
             ))?;
 
