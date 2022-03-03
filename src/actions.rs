@@ -17,7 +17,7 @@ use crate::{
 #[derive(PartialEq)]
 pub enum ActionResult {
     VALID,
-    INVALID,
+    INVALID(String),
 }
 
 pub struct ActionData<'a> {
@@ -160,10 +160,10 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
 
                     enter_captured_mode(v.terminal)
                         .expect("Could not re-enter the terminal capture");
-                    ActionResult::INVALID
+                    ActionResult::VALID
                 }
             } else {
-                ActionResult::INVALID
+                ActionResult::INVALID(String::from("No file selected"))
             }
         }),
     );

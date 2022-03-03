@@ -11,7 +11,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use actions::{ActionData, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP};
+use actions::{
+    ActionData, ActionResult, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP,
+};
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
 use helper_types::{AppSettings, AppState, NormalModeState, SearchModeState, StyleSet};
@@ -28,11 +30,12 @@ use crate::modes::cmp_by_dir_and_path;
 
 pub type CustomTerminal = Terminal<CrosstermBackend<Stdout>>;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let config = AppSettings::load_config(vec![
         "../example_config.toml",
         "/usr/share/fphile/global_config.toml",
-    ])?;
+    ])
+    .expect("Could not load the config file");
 
     let current_dir = FileTreeNode::new(
         env::current_dir()
@@ -47,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // setup terminal
     let backend = tui::backend::CrosstermBackend::new(io::stdout());
-    let mut terminal = tui::Terminal::new(backend)?;
+    let mut terminal = tui::Terminal::new(backend).expect("Failed to start a terminal");
 
     let app_state = TrackedModifiable::new(AppState::new(current_dir));
     enter_captured_mode(&mut terminal).expect("Could not capture the terminal");
@@ -64,9 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Err(err) = res {
         println!("Exiting because of an error: {:?}", err)
-    }
-
-    Ok(())
+    };
 }
 
 pub fn enter_captured_mode(terminal: &mut CustomTerminal) -> io::Result<()> {
@@ -240,6 +241,9 @@ pub(self) fn inputs(
     if let Some(closure) = closure_option {
         let action_data = ActionData::new(config, terminal, app_state, modifier, &dir_items);
         let action_result = closure(action_data);
+        if let ActionResult::INVALID(error_message) = action_result {
+            app_state.get_mut().error_message_line = Some(error_message);
+        }
 
         // whether it was successful or not, clear the input state
         app_state.get_mut().input_reader.clear();
