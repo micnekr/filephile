@@ -16,7 +16,9 @@ use actions::{
 };
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
-use helper_types::{AppSettings, AppState, NormalModeState, SearchModeState, StyleSet};
+use helper_types::{
+    AppSettings, AppState, InputReaderDigestResult, NormalModeState, SearchModeState, StyleSet,
+};
 use modes::{get_file_text_preview, Mode};
 use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::{Constraint, Direction, Layout, Rect};
@@ -207,13 +209,16 @@ pub(self) fn inputs(
     }
 
     let is_search_mode = app_state.mode == Mode::Search;
-    app_state
+    let digest_result = app_state
         .get_mut()
         .input_reader
         // if we are in the search mode, consider everything as verb text
         // (even digits, which would otherwise be considered as modifiers)
         // that is so that we remember it as normal text, not as commands
         .digest(k, is_search_mode);
+    if let InputReaderDigestResult::DigestError(error_message) = digest_result {
+        app_state.get_mut().error_message_line = Some(error_message);
+    }
 
     let modifier = app_state.input_reader.modifier_key_sequence.parse().ok();
 
@@ -250,13 +255,21 @@ pub(self) fn inputs(
         app_state.get_mut().input_reader.clear();
     } else {
         // look for the possible ways to continue the sequence. If there is one, do not do anything yet
-        if !app_state
+        let current_sequence = app_state
             .input_reader
-            .check_incomplete_commands(vec![mode_key_binding, &config.global_key_bindings])
-        {
+            .get_human_friendly_verb_key_sequence();
+        if !app_state.input_reader.check_incomplete_commands(
+            &current_sequence.clone(),
+            vec![mode_key_binding, &config.global_key_bindings],
+        ) {
             // if it is a search mode, enter the entire sequence
             if app_state.mode == Mode::Search {
                 app_state.get_mut().copy_input_to_search_string();
+            } else {
+                app_state.get_mut().error_message_line = Some(String::from(format!(
+                    "Could not recognise that sequence: {}",
+                    current_sequence
+                )));
             }
             // clear because that sequence is not valid
             app_state.get_mut().input_reader.clear();

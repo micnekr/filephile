@@ -119,12 +119,12 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
         Box::new(|v| {
             let selected_file_tree_node = &v.app_state.selected_file;
             if let Some(selected_file_tree_node) = selected_file_tree_node {
-                // open the directory
                 if selected_file_tree_node.is_dir() {
+                    // open the directory
                     v.app_state.get_mut().current_dir = selected_file_tree_node.clone();
                     ActionResult::VALID
-                    // open the file
                 } else {
+                    // open the file
                     // move to a different screen
                     exit_captured_mode(v.terminal).expect("Could not leave terminal capture");
                     // NOTE: current_dir()'s behaviour is up to the implementation if the path is relative,

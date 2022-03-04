@@ -101,6 +101,10 @@ pub struct StyleSet {
     pub dir: Style,
 }
 
+pub enum InputReaderDigestResult {
+    DigestSuccessful,
+    DigestError(String),
+}
 pub struct InputReader {
     pub modifier_key_sequence: String,
     pub verb_key_sequence: Vec<String>,
@@ -183,7 +187,7 @@ impl AppState {
 }
 
 impl InputReader {
-    fn get_human_friendly_verb_key_sequence(&self) -> String {
+    pub fn get_human_friendly_verb_key_sequence(&self) -> String {
         self.verb_key_sequence
             .iter()
             .fold(String::from(""), |acc, el| {
@@ -199,7 +203,7 @@ impl InputReader {
         self.verb_key_sequence.clear();
     }
 
-    pub fn digest(&mut self, key: KeyCode, force_pushing_as_verb: bool) {
+    pub fn digest(&mut self, key: KeyCode, force_pushing_as_verb: bool) -> InputReaderDigestResult {
         if let KeyCode::Char(character) = key {
             // if it is a modifier
             if !force_pushing_as_verb && character.is_digit(10) {
@@ -208,6 +212,9 @@ impl InputReader {
                 // we can not add a movement after a verb, so fail in that case
                 if !self.verb_key_sequence.is_empty() {
                     self.clear();
+                    return InputReaderDigestResult::DigestError(String::from(
+                        "Can not have a verb modifier after an verb",
+                    ));
                 }
             } else {
                 self.verb_key_sequence.push(character.to_string());
@@ -219,6 +226,7 @@ impl InputReader {
         } else if let KeyCode::Enter = key {
             self.verb_key_sequence.push("ENTER".to_string());
         }
+        InputReaderDigestResult::DigestSuccessful
     }
 
     pub fn get_closure_by_key_bindings<'a>(
@@ -234,8 +242,11 @@ impl InputReader {
         return None;
     }
 
-    pub fn check_incomplete_commands(&self, possiblities: Vec<&BTreeMap<String, String>>) -> bool {
-        let current_sequence = &self.get_human_friendly_verb_key_sequence();
+    pub fn check_incomplete_commands(
+        &self,
+        current_sequence: &str,
+        possiblities: Vec<&BTreeMap<String, String>>,
+    ) -> bool {
         possiblities.iter().any(|map| {
             map.keys()
                 .any(|string| string.starts_with(current_sequence))
