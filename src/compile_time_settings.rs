@@ -1,0 +1,1 @@
+pub const PREVIEW_TEXT_FETCH_LENGTH: usize = 1000;

@@ -1,11 +1,18 @@
+min_distance_from_cursor_to_bottom = 4
+default_file_editor_command = ["vim", "<FILE>"]
+
 [global_key_bindings]
 q = "quit"
-"/" = "search"
+"/" = "search_mode"
+ESC = "normal_mode"
 [normal_mode_key_bindings]
 h = "left"
 j = "down"
 k = "up"
 l = "right"
 G = "go_to_or_go_to_bottom"
-gg = "go_to_top"
+"g g" = "go_to_top"
 [search_mode_key_bindings]
+q = "noop"
+BACKSPACE = "delete_last_char"
+ENTER = "select"

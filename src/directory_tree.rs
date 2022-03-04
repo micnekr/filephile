@@ -6,15 +6,9 @@ use std::fs::read_dir;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 
-use crate::modes::RecordedModifiable;
-use crate::StyleSet;
-
 #[derive(Clone)]
-pub(crate) struct FileTreeNode {
-    // Make it impossible to modify it from the outside
+pub struct FileTreeNode {
     pub(self) path_buf: PathBuf,
-    pub(self) is_dir: bool,
-    // pub(self) simple_os_string_name: OsString,
     pub(self) simple_name: String,
 }
 
@@ -48,7 +42,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 impl FileTreeNode {
-    pub(crate) fn new(path: PathBuf) -> io::Result<FileTreeNode> {
+    pub(crate) fn new(path: PathBuf) -> FileTreeNode {
         let path = normalize_path(&path);
         let simple_os_string_name = path.file_name().map(OsString::from);
 
@@ -64,19 +58,25 @@ impl FileTreeNode {
 
         // get the file name
         let simple_name = simple_os_string_name.to_string_lossy().into_owned();
-        Ok(FileTreeNode {
-            is_dir: path.is_dir(),
+        FileTreeNode {
             path_buf: path.to_path_buf(),
-            // simple_os_string_name,
             simple_name,
-        })
+        }
+    }
+
+    pub(crate) fn get_path_buf(&self) -> &PathBuf {
+        &self.path_buf
     }
 
     pub(crate) fn get_simple_name(&self) -> &String {
         &self.simple_name
     }
 
-    pub(crate) fn get_score(&self, query: &str) -> i64 {
+    pub(crate) fn is_dir(&self) -> bool {
+        self.path_buf.is_dir()
+    }
+
+    pub(crate) fn compute_score(&self, query: &str) -> i64 {
         let match_data =
             SkimMatcherV2::default()
                 .smart_case()
@@ -87,113 +87,22 @@ impl FileTreeNode {
         }
     }
 
-    pub(crate) fn get_path(&self) -> &PathBuf {
-        &self.path_buf
-    }
-    pub(crate) fn is_dir(&self) -> bool {
-        self.is_dir
-    }
-
-    pub(crate) fn get_files(&self) -> io::Result<Vec<FileTreeNode>> {
+    pub(crate) fn list_files(&self) -> io::Result<Vec<FileTreeNode>> {
         let mut ret = Vec::new();
         for entry in read_dir(self.path_buf.clone())? {
             let resolved_entry = entry?;
-            ret.push(FileTreeNode::new(resolved_entry.path())?);
+            ret.push(FileTreeNode::new(resolved_entry.path()));
         }
         Ok(ret)
     }
 }
-
-// #[derive(Clone)]
-// pub(crate) struct FileSelectionMultiple {
-//     pub selected_files: BTreeSet<OsString>,
-//     pub styles: StyleSet,
-// }
-
-#[derive(Clone)]
-pub struct FileSelectionSingle {
-    pub(self) has_been_modified: bool,
-    pub(self) selected_file: Option<OsString>,
-    pub(self) styles: StyleSet,
-}
-
-pub(crate) trait FileSelection {
-    fn is_selected(&self, node: &FileTreeNode) -> bool;
-    fn get_styles(&self) -> &StyleSet;
-}
-
-// impl FileSelection for FileSelectionMultiple {
-//     fn is_selected(&self, node: &FileTreeNode) -> bool {
-//         self.selected_files.contains(node.get_path().as_os_str())
-//     }
-//     fn get_styles(&self) -> &StyleSet {
-//         &self.styles
-//     }
-// }
-
-impl FileSelection for FileSelectionSingle {
-    fn is_selected(&self, node: &FileTreeNode) -> bool {
-        if let Some(selected_file) = &self.selected_file {
-            selected_file == node.get_path().as_os_str()
-        } else {
-            false
-        }
-    }
-    fn get_styles(&self) -> &StyleSet {
-        &self.styles
-    }
-}
-
-impl RecordedModifiable for FileSelectionSingle {
-    fn reset_modification_status(&mut self) {
-        self.has_been_modified = false;
-    }
-
-    fn mark_as_modified(&mut self) {
-        self.has_been_modified = true;
-    }
-    fn has_been_modified(&self) -> bool {
-        self.has_been_modified
-    }
-}
-
-impl FileSelectionSingle {
-    pub(crate) fn new(styles: StyleSet) -> Self {
-        FileSelectionSingle {
-            has_been_modified: false,
-            selected_file: None,
-            styles,
-        }
-    }
-    pub(crate) fn set_selected_file(&mut self, selected_file: Option<OsString>) {
-        self.mark_as_modified();
-        self.selected_file = selected_file;
-    }
-    pub(crate) fn get_file_cursor_index_or_reset<'a>(
-        &'a mut self,
-        items: &Vec<FileTreeNode>,
-    ) -> Option<usize> {
+pub(crate) fn get_file_cursor_index(
+    selected_file: &Option<FileTreeNode>,
+    items: &Vec<FileTreeNode>,
+) -> Option<usize> {
+    selected_file.as_ref().and_then(|selected_file| {
         items
             .iter()
-            .position(|el| self.is_selected(&el))
-            .or_else(|| {
-                // if the cursor can not be placed:
-                // TODO: do this
-                // app_state.is_urgent_update = true;
-                self.mark_as_modified();
-                self.selected_file = items
-                    // get the first index
-                    .first()
-                    .map_or(None, |el| Some(el.get_path().as_os_str().to_owned()));
-                // if the directory is empty, skip it. Otherwise, go to the first element
-                if self.selected_file.is_some() {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
-    }
-    pub(crate) fn get_selected_file(&self) -> &Option<OsString> {
-        &self.selected_file
-    }
+            .position(|el| selected_file.path_buf == el.path_buf)
+    })
 }

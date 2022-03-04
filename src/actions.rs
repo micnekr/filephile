@@ -1,162 +1,235 @@
-use lazy_static::lazy_static;
-use std::{collections::BTreeMap, io, path::PathBuf};
+use once_cell::sync::Lazy;
+use std::{collections::BTreeMap, fs::canonicalize};
 
 use crate::{
     directory_tree::FileTreeNode,
-    modes::{Mode, ModesManager, NormalModeController},
-    AppState,
+    enter_captured_mode, exit_captured_mode,
+    helper_types::{AppSettings, NormalModeState, SearchModeState, TrackedModifiable},
+    modes::Mode,
+    AppState, CustomTerminal,
 };
 
-// // TODO: use phf instead
 #[derive(PartialEq)]
-pub(crate) enum ActionResult {
+pub enum ActionResult {
     VALID,
-    INVALID,
+    INVALID(String),
 }
 
-pub(crate) type NameMap<Action> = BTreeMap<String, Action>;
-type GlobalActionNameMap = NameMap<
-    Box<
-        dyn Fn(&mut AppState, &mut ModesManager, Option<usize>) -> io::Result<ActionResult>
-            + Sync
-            + 'static,
-    >,
->;
-type NormalModeActionNameMap = NameMap<
-    Box<
-        dyn Fn(
-                &mut AppState,
-                &mut NormalModeController,
-                Option<usize>,
-                &Vec<FileTreeNode>,
-            ) -> io::Result<ActionResult>
-            + Sync
-            + 'static,
-    >,
->;
+pub struct ActionData<'a> {
+    config: &'a AppSettings,
+    terminal: &'a mut CustomTerminal,
+    app_state: &'a mut TrackedModifiable<AppState>,
+    modifier: Option<usize>,
+    dir_items: &'a Vec<FileTreeNode>,
+}
 
-lazy_static! {
-    pub(crate) static ref GLOBAL_ACTION_MAP: GlobalActionNameMap = {
-        let mut m: GlobalActionNameMap = BTreeMap::new();
-        m.insert(
-            String::from("quit"),
-            Box::new(|_, mode_manager, _| {
-                mode_manager.set_current_mode(Mode::Quitting);
-                // app_state.is_urgent_update = true;
-                Ok(ActionResult::VALID)
-            }),
-        );
-        m.insert(
-            String::from("search"),
-            Box::new(|_, mode_manager, _| {
-                mode_manager.set_current_mode(Mode::Search);
-                Ok(ActionResult::VALID)
-            }),
-        );
-        m
-    };
-    pub(crate) static ref NORMAL_MODE_ACTION_MAP: NormalModeActionNameMap = {
-        let mut m: NormalModeActionNameMap = BTreeMap::new();
-        m.insert(
-            String::from("down"),
-            Box::new(|_, mode_manager, modifier, dir_items| {
-                mode_manager.change_file_cursor_index(dir_items, |i, items| {
-                    if let Some(i) = i{
-                    Some((i + modifier.unwrap_or(1)).rem_euclid(items.len()))
-                    }else {None}
-                })?;
-                Ok(ActionResult::VALID)
-            }),
-        );
-        m.insert(
-            String::from("up"),
-            Box::new(|_, mode_manager, modifier, dir_items|{
-                // Add the length to make sure that there is no overflow
-                mode_manager.change_file_cursor_index(dir_items, |i, items| {
-                    if let Some(i) = i {
-                    Some((items.len() + i - modifier.unwrap_or(1)).rem_euclid(items.len()))
-                    }else {None}
-                })?;
-                Ok(ActionResult::VALID)
-            }),
-        );
-        m.insert(
-            String::from("left"),
-            Box::new(|app_state, mode_manager, modifier, dir_items|{
-                let current_path = app_state.current_dir.get_path();
-                let next_path = current_path.parent().unwrap_or(&current_path);
-                app_state.current_dir = FileTreeNode::new(next_path.to_path_buf())?;
-                Ok(ActionResult::VALID)
-            }),
-        );
-        m.insert(
-            String::from("right"),
-            Box::new(|app_state, mode_manager, modifier, dir_items| {
-                let selected_file_tree_node = mode_manager
-                    .get_file_cursor()
-                    .get_selected_file()
-                    .as_ref()
-                    .map(|el| FileTreeNode::new(PathBuf::from(el)));
-                if let Some(Ok(selected_file_tree_node)) = selected_file_tree_node {
-                    // if selected_file_tree_node.
-                    if selected_file_tree_node.is_dir() {
-                        app_state.current_dir = selected_file_tree_node;
-                        Ok(ActionResult::VALID)
-                    } else {
-                        Ok(ActionResult::INVALID)
+impl<'a> ActionData<'a> {
+    pub fn new(
+        config: &'a AppSettings,
+        terminal: &'a mut CustomTerminal,
+        app_state: &'a mut TrackedModifiable<AppState>,
+        modifier: Option<usize>,
+        dir_items: &'a Vec<FileTreeNode>,
+    ) -> Self {
+        ActionData {
+            config,
+            terminal,
+            app_state,
+            modifier,
+            dir_items,
+        }
+    }
+}
+
+pub type ActionNameMap = BTreeMap<String, ActionClosure>;
+
+pub type ActionClosure = Box<dyn Fn(ActionData) -> ActionResult + Sync + Send + 'static>;
+
+pub(crate) static GLOBAL_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let mut m: ActionNameMap = BTreeMap::new();
+    m.insert(
+        String::from("quit"),
+        Box::new(|v| {
+            v.app_state.get_mut().mode = Mode::Quitting;
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("normal_mode"),
+        Box::new(|v| {
+            // reset the normal mode
+            v.app_state.get_mut().normal_mode_state = NormalModeState::default();
+
+            v.app_state.get_mut().mode = Mode::Normal;
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("search_mode"),
+        Box::new(|v| {
+            // reset the search mode
+            v.app_state.get_mut().search_mode_state = SearchModeState::default();
+
+            v.app_state.get_mut().mode = Mode::Search;
+            ActionResult::VALID
+        }),
+    );
+    m
+});
+pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let mut m: ActionNameMap = BTreeMap::new();
+    m.insert(String::from("noop"), Box::new(|_| ActionResult::VALID));
+    m.insert(
+        String::from("down"),
+        Box::new(|v| {
+            v.app_state
+                .get_mut()
+                .set_file_cursor_highlight_index(v.dir_items, |i, _| i + v.modifier.unwrap_or(1));
+
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("up"),
+        Box::new(|v| {
+            v.app_state.get_mut().set_file_cursor_highlight_index(
+                v.dir_items,
+                |i, dir_items_num| {
+                    // make sure that we do not go into the negatives because of overflow
+                    // rem_euclid makes sure that we do not have a number less than or equal to dir_items_num - 1
+                    dir_items_num + i - v.modifier.unwrap_or(1).rem_euclid(dir_items_num)
+                },
+            );
+
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("left"),
+        Box::new(|v| {
+            let current_path = v.app_state.current_dir.get_path_buf();
+            let next_path = current_path.parent().unwrap_or(&current_path);
+            let new_dir = next_path.to_path_buf();
+            v.app_state.get_mut().current_dir = FileTreeNode::new(new_dir);
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("right"),
+        Box::new(|v| {
+            let selected_file_tree_node = &v.app_state.selected_file;
+            if let Some(selected_file_tree_node) = selected_file_tree_node {
+                if selected_file_tree_node.is_dir() {
+                    // open the directory
+                    v.app_state.get_mut().current_dir = selected_file_tree_node.clone();
+                    ActionResult::VALID
+                } else {
+                    // open the file
+                    // move to a different screen
+                    exit_captured_mode(v.terminal).expect("Could not leave terminal capture");
+                    // NOTE: current_dir()'s behaviour is up to the implementation if the path is relative,
+                    // So we need to make it canonical
+                    let relative_path_current_dir = v.app_state.current_dir.get_path_buf();
+                    let panic_message = format!(
+                        r#"Encountered an error while tried to convert "{}" to an absolute path"#,
+                        relative_path_current_dir.as_os_str().to_string_lossy()
+                    );
+                    let absolute_path_current_dir =
+                        canonicalize(relative_path_current_dir).expect(&panic_message);
+                    let mut file_editor_options = v.config.default_file_editor_command.iter();
+                    let mut command = std::process::Command::new(
+                        file_editor_options
+                            .next()
+                            .expect("Found empty arguments for the default file editor"),
+                    );
+                    command.current_dir(absolute_path_current_dir);
+
+                    let file_name = selected_file_tree_node.get_simple_name();
+                    for file_editor_option in file_editor_options {
+                        let file_editor_option = file_editor_option.replace("<FILE>", &file_name);
+                        command.arg(file_editor_option);
                     }
-                } else {
-                        Ok(ActionResult::INVALID)
-                }
-            }),
-        );
-        m.insert(
-            String::from("go_to_or_go_to_bottom"),
-            Box::new(|_, mode_manager, modifier, dir_items| {
-                // TODO: decouple key sequences from the app state?
-                // if there is a specified line, go to it
-                if let Some(modifier) = modifier {
-                    mode_manager.change_file_cursor_index(dir_items, |i, items| {
-                        if let Some(i) = i {
-                        Some(if modifier > items.len() {
-                            i
-                        } else {
-                            modifier - 1 // to convert it into an index
-                        })
-                        } else {
-                            None
-                        }
-                    })?;
-                    // TODO: maybe show an error message, e.g. INVALID(String) ?
-                    Ok(ActionResult::VALID)
-                } else {
-                    mode_manager.change_file_cursor_index(dir_items, |_, items| {
-                        match items.len() {
-                            0 => None,
+                    command
+                        .spawn()
+                        .expect("Error: Failed to run an editor")
+                        .wait()
+                        .expect("Error: Editor returned a non-zero status");
 
-                        _ => Some(items.len() - 1)
-                        }
-                    })?;
-                    Ok(ActionResult::VALID)
+                    enter_captured_mode(v.terminal)
+                        .expect("Could not re-enter the terminal capture");
+                    ActionResult::VALID
                 }
-            }),
-        );
-        m.insert(
-            String::from("go_to_top"),
-            Box::new(|_, mode_manager, _, dir_items| {
-                mode_manager.change_file_cursor_index(dir_items, |_, _| Some(0))?;
-                Ok(ActionResult::VALID)
-            }),
-        );
-        m
-    };
-}
+            } else {
+                ActionResult::INVALID(String::from("No file selected"))
+            }
+        }),
+    );
+    m.insert(
+        String::from("go_to_or_go_to_bottom"),
+        Box::new(|v| {
+            // if there is a specified line, go to it
+            if let Some(modifier) = v.modifier {
+                v.app_state.get_mut().set_file_cursor_highlight_index(
+                    v.dir_items,
+                    |_, num_items| {
+                        (modifier - 1).clamp(0, num_items - 1) // to convert it into an index
+                    },
+                );
+                ActionResult::VALID
+            } else {
+                v.app_state
+                    .get_mut()
+                    .set_file_cursor_highlight_index(v.dir_items, |_, num_items| num_items - 1);
+                ActionResult::VALID
+            }
+        }),
+    );
+    m.insert(
+        String::from("go_to_top"),
+        Box::new(|v| {
+            v.app_state
+                .get_mut()
+                .set_file_cursor_highlight_index(v.dir_items, |_, _| 0);
+            ActionResult::VALID
+        }),
+    );
+    m
+});
 
-// type Action =
-//     Box<dyn Fn(&mut AppState, Option<usize>) -> io::Result<ActionResult> + Sync + 'static>;
-// lazy_static! {
-//     pub(crate) static ref ACTION_MAP: ActionNameMap = {
-//         let mut m: ActionNameMap = BTreeMap::new();
-//         m
-//     };
-// }
+pub(crate) static SEARCH_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let mut m: ActionNameMap = BTreeMap::new();
+    m.insert(
+        String::from("noop"),
+        Box::new(|v| {
+            // push the new typed characters
+            v.app_state.get_mut().copy_input_to_search_string();
+            v.app_state.get_mut().input_reader.clear();
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("delete_last_char"),
+        Box::new(|v| {
+            v.app_state.get_mut().search_mode_state.search_string.pop();
+
+            ActionResult::VALID
+        }),
+    );
+    m.insert(
+        String::from("select"),
+        Box::new(|v| {
+            if let Some(first_item) = v.dir_items.get(0) {
+                v.app_state.get_mut().selected_file = Some(first_item.to_owned());
+            }
+
+            v.app_state.get_mut().normal_mode_state = NormalModeState::default();
+            v.app_state.get_mut().search_mode_state = SearchModeState::default();
+
+            v.app_state.get_mut().mode = Mode::Normal;
+
+            ActionResult::VALID
+        }),
+    );
+
+    m
+});
