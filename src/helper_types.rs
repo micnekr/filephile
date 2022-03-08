@@ -92,7 +92,7 @@ pub struct AppSettings {
     pub normal_mode_key_bindings: StringMap,
     pub search_mode_key_bindings: StringMap,
     pub min_distance_from_cursor_to_bottom: usize,
-    pub default_file_editor_command: Vec<String>,
+    pub default_file_editor_command: Option<Vec<String>>,
 }
 
 #[derive(Clone)]

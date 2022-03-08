@@ -124,6 +124,8 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                     v.app_state.get_mut().current_dir = selected_file_tree_node.clone();
                     ActionResult::VALID
                 } else {
+                    if let Some(file_editor_options) = &v.config.default_file_editor_command{
+
                     // open the file
                     // move to a different screen
                     exit_captured_mode(v.terminal).expect("Could not leave terminal capture");
@@ -136,7 +138,7 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                     );
                     let absolute_path_current_dir =
                         canonicalize(relative_path_current_dir).expect(&panic_message);
-                    let mut file_editor_options = v.config.default_file_editor_command.iter();
+                    let mut file_editor_options = file_editor_options.iter();
                     let mut command = std::process::Command::new(
                         file_editor_options
                             .next()
@@ -158,6 +160,9 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                     enter_captured_mode(v.terminal)
                         .expect("Could not re-enter the terminal capture");
                     ActionResult::VALID
+                    } else {
+                        ActionResult::INVALID(String::from("Can not open the file because the config file does not contain a command to open files"))
+                    }
                 }
             } else {
                 ActionResult::INVALID(String::from("No file selected"))
