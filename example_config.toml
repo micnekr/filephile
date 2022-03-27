@@ -13,6 +13,7 @@ l = "right"
 G = "go_to_or_go_to_bottom"
 "g g" = "go_to_top"
 r = "rename"
+x = "delete_instantly"
 [text_input_mode_key_bindings]
 q = "noop"
 BACKSPACE = "delete_last_char"

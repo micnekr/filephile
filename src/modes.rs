@@ -17,6 +17,7 @@ use crate::{
     actions::{ActionMapper, ActionResult, NORMAL_MODE_ACTION_MAP},
     compile_time_settings::PREVIEW_TEXT_FETCH_LENGTH,
     directory_tree::FileTreeNode,
+    helper_types::{AppSettings, FindKeyByActionName, TrackedModifiable},
 };
 
 pub enum Mode {
@@ -41,6 +42,7 @@ pub enum TextInput {
 
 pub enum OverlayMode {
     Rename { old_file: FileTreeNode },
+    DeleteInstantlyConfirm { file: FileTreeNode },
 }
 
 impl Mode {
@@ -91,27 +93,68 @@ impl Mode {
                     }),
                 )
             }
+            Mode::OverlayMode {
+                overlay_mode: OverlayMode::DeleteInstantlyConfirm { file },
+                ..
+            } => {
+                let file = file.to_owned();
+                ActionMapper::new_dynamic(
+                    String::from("select"),
+                    Box::new(move |v| {
+                        let result = if file.is_dir() {
+                            fs::remove_dir_all(file.get_path_buf())
+                        } else {
+                            fs::remove_file(file.get_path_buf())
+                        };
+
+                        // reset the mode
+                        v.app_state.get_mut().reset_state();
+
+                        match result {
+                            Ok(_) => ActionResult::Valid,
+                            Err(err) => {
+                                ActionResult::Invalid(format!("Error while deleting: {}", err))
+                            }
+                        }
+                    }),
+                )
+            }
         }
     }
 }
 
 impl OverlayMode {
-    pub fn get_popup_text(&self, typed_text: String) -> Paragraph {
-        let title = match &self {
-            OverlayMode::Rename { old_file } => {
-                format!("Renaming '{}'", old_file.get_simple_name())
-            }
+    pub fn get_popup_text(&self, typed_text: String, config: &AppSettings) -> Paragraph {
+        let (title, spans) = match &self {
+            OverlayMode::Rename { old_file } => (
+                format!("Renaming '{}'", old_file.get_simple_name()),
+                vec![Spans::from(vec![
+                    Span::raw("New name: '"),
+                    Span::styled(typed_text, Style::default().fg(tui::style::Color::Blue)),
+                    Span::raw("'"),
+                ])],
+            ),
+            OverlayMode::DeleteInstantlyConfirm { file } => (
+                format!("Deleting '{}'", file.get_simple_name()),
+                vec![Spans::from(vec![Span::raw(format!(
+                    "If you want to cancel, press '{}'. Otherwise, press '{}' to confirm",
+                    config
+                        .global_key_bindings
+                        .find_key_by_action_name("normal_mode")
+                        .expect("No 'normal_mode' action key selected for global_key_bindings"),
+                    config
+                        .text_input_mode_key_bindings
+                        .find_key_by_action_name("select")
+                        .expect("No 'select' action key selected for text_input_key_bindings")
+                ))])],
+            ),
         };
         let block = Block::default().title(title).borders(Borders::ALL);
 
-        Paragraph::new(vec![Spans::from(vec![
-            Span::raw("New name: '"),
-            Span::styled(typed_text, Style::default().fg(tui::style::Color::Blue)),
-            Span::raw("'"),
-        ])])
-        .block(block)
-        .alignment(tui::layout::Alignment::Center)
-        .wrap(Wrap { trim: false })
+        Paragraph::new(spans)
+            .block(block)
+            .alignment(tui::layout::Alignment::Center)
+            .wrap(Wrap { trim: false })
     }
 }
 

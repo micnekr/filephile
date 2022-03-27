@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossterm = "0.2.0"
+crossterm = "0.23"
 tui = { version = "0.16", default-features = false, features = ['crossterm'] }
 
 # for mapping actions and names

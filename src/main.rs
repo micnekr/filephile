@@ -423,7 +423,7 @@ pub(self) fn draw<B: Backend>(
 
         // overlays
         if let OverlayMode { overlay_mode, .. } = &app_state.mode {
-            let widget = overlay_mode.get_popup_text(app_state.entered_text.clone());
+            let widget = overlay_mode.get_popup_text(app_state.entered_text.clone(), &config);
             let area = centered_rect(60, 60, f_size);
             f.render_widget(Clear, area); //this clears out the background
             f.render_widget(widget, area);

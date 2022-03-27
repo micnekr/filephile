@@ -95,6 +95,17 @@ pub struct ErrorPopup {
     pub desc: String,
 }
 
+pub trait FindKeyByActionName {
+    fn find_key_by_action_name<'a>(&'a self, action_name: &'a str) -> Option<&'a str>;
+}
+impl FindKeyByActionName for StringMap {
+    fn find_key_by_action_name<'a>(&'a self, action_name: &'a str) -> Option<&'a str> {
+        self.iter()
+            .find(|(_, v)| *v == action_name)
+            .map(|(k, _)| k.as_str())
+    }
+}
+
 impl AppSettings {
     pub fn load_config<P: AsRef<Path>>(paths: Vec<P>) -> io::Result<AppSettings> {
         let config = paths

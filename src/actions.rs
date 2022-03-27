@@ -1,5 +1,8 @@
 use once_cell::sync::Lazy;
-use std::{collections::BTreeMap, fs::canonicalize};
+use std::{
+    collections::BTreeMap,
+    fs::{self, canonicalize},
+};
 
 use crate::{
     directory_tree::FileTreeNode,
@@ -232,6 +235,25 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                     background_mode: SimpleMode::Normal, //NOTE: we reset this a couple lines above, so it has to be normal mode. It is also within the normal mode key bindings block.
                     overlay_mode: OverlayMode::Rename {
                         old_file: old_file.to_owned(),
+                    },
+                };
+                ActionResult::Valid
+            } else {
+                ActionResult::Invalid(String::from("No file selected"))
+            }
+        }),
+    );
+    m.insert(
+        String::from("delete_instantly"),
+        Box::new(|v| {
+            // reset the  mode
+            v.app_state.get_mut().reset_state();
+
+            if let Some(file) = &v.app_state.selected_file {
+                v.app_state.get_mut().mode = Mode::OverlayMode {
+                    background_mode: SimpleMode::Normal, //NOTE: we reset this a couple lines above, so it has to be normal mode. It is also within the normal mode key bindings block.
+                    overlay_mode: OverlayMode::DeleteInstantlyConfirm {
+                        file: file.to_owned(),
                     },
                 };
                 ActionResult::Valid
