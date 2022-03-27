@@ -1,15 +1,135 @@
-mod normal_mode;
-mod search_mode;
+pub mod normal_mode;
+pub mod search_mode;
 
-use std::{cmp::Ordering, fs::File, io::Read};
+use std::{
+    cmp::Ordering,
+    fs::{self, File},
+    io::Read,
+};
 
-use crate::{compile_time_settings::PREVIEW_TEXT_FETCH_LENGTH, directory_tree::FileTreeNode};
+use tui::{
+    style::Style,
+    text::{Span, Spans},
+    widgets::{Block, Borders, Paragraph, Wrap},
+};
 
-#[derive(Clone, PartialEq)]
+use crate::{
+    actions::{ActionMapper, ActionResult, NORMAL_MODE_ACTION_MAP},
+    compile_time_settings::PREVIEW_TEXT_FETCH_LENGTH,
+    directory_tree::FileTreeNode,
+};
+
 pub enum Mode {
+    SimpleMode(SimpleMode),
+    OverlayMode {
+        background_mode: SimpleMode,
+        overlay_mode: OverlayMode,
+    },
+    TextInputMode {
+        text_input_type: TextInput,
+    }, // a mode which acts like a prompt, but can also present its own view
+}
+
+pub enum SimpleMode {
     Normal,
-    Search,
     Quitting,
+}
+
+pub enum TextInput {
+    Search,
+}
+
+pub enum OverlayMode {
+    Rename { old_file: FileTreeNode },
+}
+
+impl Mode {
+    pub fn get_action_map(&self) -> ActionMapper {
+        match self {
+            Mode::SimpleMode(SimpleMode::Quitting) => unreachable!(), // should have exited the program by now
+            Mode::SimpleMode(SimpleMode::Normal) => {
+                ActionMapper::StaticActionMap(&NORMAL_MODE_ACTION_MAP)
+            }
+            Mode::TextInputMode {
+                text_input_type: TextInput::Search,
+            } => ActionMapper::new_dynamic(
+                String::from("select"),
+                Box::new(|v| {
+                    if let Some(first_item) = v.dir_items.get(0) {
+                        v.app_state.get_mut().selected_file = Some(first_item.to_owned());
+                    }
+
+                    v.app_state.get_mut().reset_state();
+
+                    ActionResult::Valid
+                }),
+            ),
+            Mode::OverlayMode {
+                overlay_mode: OverlayMode::Rename { old_file },
+                ..
+            } => {
+                let old_file = old_file.to_owned();
+                ActionMapper::new_dynamic(
+                    String::from("select"),
+                    Box::new(move |v| {
+                        // TODO: do we want to check if the new name is available?
+                        // NOTE: this check is not 100% reliable because of the race condition.
+
+                        let new_name = &v.app_state.entered_text;
+                        let mut new_path = v.app_state.current_dir.get_path_buf().clone();
+                        new_path.push(new_name);
+
+                        // reset the mode
+                        v.app_state.get_mut().reset_state();
+
+                        match fs::rename(old_file.get_path_buf(), new_path) {
+                            Ok(_) => ActionResult::Valid,
+                            Err(err) => {
+                                ActionResult::Invalid(format!("Error while renaming: {}", err))
+                            }
+                        }
+                    }),
+                )
+            }
+        }
+    }
+}
+
+impl OverlayMode {
+    pub fn get_popup_text(&self, typed_text: String) -> Paragraph {
+        let title = match &self {
+            OverlayMode::Rename { old_file } => {
+                format!("Renaming '{}'", old_file.get_simple_name())
+            }
+        };
+        let block = Block::default().title(title).borders(Borders::ALL);
+
+        Paragraph::new(vec![Spans::from(vec![
+            Span::raw("New name: '"),
+            Span::styled(typed_text, Style::default().fg(tui::style::Color::Blue)),
+            Span::raw("'"),
+        ])])
+        .block(block)
+        .alignment(tui::layout::Alignment::Center)
+        .wrap(Wrap { trim: false })
+    }
+}
+
+impl TextInput {
+    pub fn represent_text_line(&self, text_line: &str) -> String {
+        match &self {
+            TextInput::Search => format!("/{}", text_line),
+        }
+    }
+}
+
+impl Mode {
+    pub fn is_text_mode(&self) -> bool {
+        match &self {
+            Mode::SimpleMode(_) => false,
+            Mode::OverlayMode { .. } | Mode::TextInputMode { .. } => true,
+        }
+    }
 }
 
 // misc functions used by multiple modes

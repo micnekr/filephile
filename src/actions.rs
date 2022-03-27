@@ -4,23 +4,22 @@ use std::{collections::BTreeMap, fs::canonicalize};
 use crate::{
     directory_tree::FileTreeNode,
     enter_captured_mode, exit_captured_mode,
-    helper_types::{AppSettings, NormalModeState, SearchModeState, TrackedModifiable},
-    modes::Mode,
+    helper_types::{AppSettings, TrackedModifiable},
+    modes::{Mode, OverlayMode, SimpleMode, TextInput},
     AppState, CustomTerminal,
 };
 
-#[derive(PartialEq)]
 pub enum ActionResult {
-    VALID,
-    INVALID(String),
+    Valid,
+    Invalid(String),
 }
 
 pub struct ActionData<'a> {
-    config: &'a AppSettings,
-    terminal: &'a mut CustomTerminal,
-    app_state: &'a mut TrackedModifiable<AppState>,
-    modifier: Option<usize>,
-    dir_items: &'a Vec<FileTreeNode>,
+    pub config: &'a AppSettings,
+    pub terminal: &'a mut CustomTerminal,
+    pub app_state: &'a mut TrackedModifiable<AppState>,
+    pub modifier: Option<usize>,
+    pub dir_items: &'a Vec<FileTreeNode>,
 }
 
 impl<'a> ActionData<'a> {
@@ -45,40 +44,64 @@ pub type ActionNameMap = BTreeMap<String, ActionClosure>;
 
 pub type ActionClosure = Box<dyn Fn(ActionData) -> ActionResult + Sync + Send + 'static>;
 
+pub enum ActionMapper {
+    StaticActionMap(&'static Lazy<ActionNameMap>),
+    StaticActionMapWithCallback(
+        &'static Lazy<ActionNameMap>,
+        BTreeMap<String, ActionClosure>,
+    ),
+}
+
+impl ActionMapper {
+    pub fn find_action(&self, search_term: &String) -> Option<&ActionClosure> {
+        match &self {
+            ActionMapper::StaticActionMap(map) => map.get(search_term),
+            ActionMapper::StaticActionMapWithCallback(static_map, dynamic_map) => static_map
+                .get(search_term)
+                .or_else(|| dynamic_map.get(search_term)),
+        }
+    }
+    pub fn new_dynamic(name: String, closure: ActionClosure) -> Self {
+        let mut dynamic_map: ActionNameMap = BTreeMap::new();
+        dynamic_map.insert(name, closure);
+        ActionMapper::StaticActionMapWithCallback(&TEXT_MODE_ACTION_MAP, dynamic_map)
+    }
+}
+
 pub(crate) static GLOBAL_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
     let mut m: ActionNameMap = BTreeMap::new();
     m.insert(
         String::from("quit"),
         Box::new(|v| {
-            v.app_state.get_mut().mode = Mode::Quitting;
-            ActionResult::VALID
+            v.app_state.get_mut().mode = Mode::SimpleMode(SimpleMode::Quitting);
+            ActionResult::Valid
         }),
     );
     m.insert(
         String::from("normal_mode"),
         Box::new(|v| {
-            // reset the normal mode
-            v.app_state.get_mut().normal_mode_state = NormalModeState::default();
+            v.app_state.get_mut().reset_state();
 
-            v.app_state.get_mut().mode = Mode::Normal;
-            ActionResult::VALID
+            ActionResult::Valid
         }),
     );
     m.insert(
         String::from("search_mode"),
         Box::new(|v| {
-            // reset the search mode
-            v.app_state.get_mut().search_mode_state = SearchModeState::default();
+            // reset the mode
+            v.app_state.get_mut().reset_state();
 
-            v.app_state.get_mut().mode = Mode::Search;
-            ActionResult::VALID
+            v.app_state.get_mut().mode = Mode::TextInputMode {
+                text_input_type: TextInput::Search,
+            };
+            ActionResult::Valid
         }),
     );
     m
 });
 pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
     let mut m: ActionNameMap = BTreeMap::new();
-    m.insert(String::from("noop"), Box::new(|_| ActionResult::VALID));
+    m.insert(String::from("noop"), Box::new(|_| ActionResult::Valid));
     m.insert(
         String::from("down"),
         Box::new(|v| {
@@ -86,7 +109,7 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                 .get_mut()
                 .set_file_cursor_highlight_index(v.dir_items, |i, _| i + v.modifier.unwrap_or(1));
 
-            ActionResult::VALID
+            ActionResult::Valid
         }),
     );
     m.insert(
@@ -101,7 +124,7 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                 },
             );
 
-            ActionResult::VALID
+            ActionResult::Valid
         }),
     );
     m.insert(
@@ -111,7 +134,7 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
             let next_path = current_path.parent().unwrap_or(&current_path);
             let new_dir = next_path.to_path_buf();
             v.app_state.get_mut().current_dir = FileTreeNode::new(new_dir);
-            ActionResult::VALID
+            ActionResult::Valid
         }),
     );
     m.insert(
@@ -122,7 +145,7 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                 if selected_file_tree_node.is_dir() {
                     // open the directory
                     v.app_state.get_mut().current_dir = selected_file_tree_node.clone();
-                    ActionResult::VALID
+                    ActionResult::Valid
                 } else {
                     if let Some(file_editor_options) = &v.config.default_file_editor_command{
 
@@ -159,13 +182,13 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
 
                     enter_captured_mode(v.terminal)
                         .expect("Could not re-enter the terminal capture");
-                    ActionResult::VALID
+                    ActionResult::Valid
                     } else {
-                        ActionResult::INVALID(String::from("Can not open the file because the config file does not contain a command to open files"))
+                        ActionResult::Invalid(String::from("Can not open the file because the config file does not contain a command to open files"))
                     }
                 }
             } else {
-                ActionResult::INVALID(String::from("No file selected"))
+                ActionResult::Invalid(String::from("No file selected"))
             }
         }),
     );
@@ -180,12 +203,12 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                         (modifier - 1).clamp(0, num_items - 1) // to convert it into an index
                     },
                 );
-                ActionResult::VALID
+                ActionResult::Valid
             } else {
                 v.app_state
                     .get_mut()
                     .set_file_cursor_highlight_index(v.dir_items, |_, num_items| num_items - 1);
-                ActionResult::VALID
+                ActionResult::Valid
             }
         }),
     );
@@ -195,44 +218,50 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
             v.app_state
                 .get_mut()
                 .set_file_cursor_highlight_index(v.dir_items, |_, _| 0);
-            ActionResult::VALID
+            ActionResult::Valid
+        }),
+    );
+    m.insert(
+        String::from("rename"),
+        Box::new(|v| {
+            // reset the  mode
+            v.app_state.get_mut().reset_state();
+
+            if let Some(old_file) = &v.app_state.selected_file {
+                v.app_state.get_mut().mode = Mode::OverlayMode {
+                    background_mode: SimpleMode::Normal, //NOTE: we reset this a couple lines above, so it has to be normal mode. It is also within the normal mode key bindings block.
+                    overlay_mode: OverlayMode::Rename {
+                        old_file: old_file.to_owned(),
+                    },
+                };
+                ActionResult::Valid
+            } else {
+                ActionResult::Invalid(String::from("No file selected"))
+            }
         }),
     );
     m
 });
 
-pub(crate) static SEARCH_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+pub(crate) static TEXT_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
     let mut m: ActionNameMap = BTreeMap::new();
     m.insert(
         String::from("noop"),
         Box::new(|v| {
             // push the new typed characters
-            v.app_state.get_mut().copy_input_to_search_string();
+            v.app_state
+                .get_mut()
+                .copy_input_manager_verbs_to_entered_text();
             v.app_state.get_mut().input_reader.clear();
-            ActionResult::VALID
+            ActionResult::Valid
         }),
     );
     m.insert(
         String::from("delete_last_char"),
         Box::new(|v| {
-            v.app_state.get_mut().search_mode_state.search_string.pop();
+            v.app_state.get_mut().entered_text.pop();
 
-            ActionResult::VALID
-        }),
-    );
-    m.insert(
-        String::from("select"),
-        Box::new(|v| {
-            if let Some(first_item) = v.dir_items.get(0) {
-                v.app_state.get_mut().selected_file = Some(first_item.to_owned());
-            }
-
-            v.app_state.get_mut().normal_mode_state = NormalModeState::default();
-            v.app_state.get_mut().search_mode_state = SearchModeState::default();
-
-            v.app_state.get_mut().mode = Mode::Normal;
-
-            ActionResult::VALID
+            ActionResult::Valid
         }),
     );
 

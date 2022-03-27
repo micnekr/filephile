@@ -11,15 +11,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use actions::{
-    ActionData, ActionResult, GLOBAL_ACTION_MAP, NORMAL_MODE_ACTION_MAP, SEARCH_MODE_ACTION_MAP,
-};
+use actions::{ActionData, ActionMapper, ActionResult, GLOBAL_ACTION_MAP};
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
-use helper_types::{
-    AppSettings, AppState, InputReaderDigestResult, NormalModeState, SearchModeState, StyleSet,
-};
-use modes::{get_file_text_preview, Mode};
+use helper_types::{AppSettings, AppState, InputReaderDigestResult, StyleSet};
+use modes::normal_mode::get_normal_mode_left_ui;
+use modes::search_mode::get_search_mode_left_ui;
+use modes::{get_file_text_preview, Mode::*, SimpleMode::*, TextInput::*};
 use tui::backend::{Backend, CrosstermBackend};
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::Style;
@@ -102,7 +100,12 @@ fn run_loop(
     let mut last_tick = Instant::now();
 
     loop {
-        if app_state.mode == Mode::Quitting {
+        if let SimpleMode(Quitting)
+        | OverlayMode {
+            background_mode: Quitting,
+            ..
+        } = app_state.mode
+        {
             return Ok(());
         }
         // if an urgent update, fore it to update ASAP by reducing wait time to 0
@@ -138,18 +141,29 @@ fn run_loop(
 
         // sort
         let dir_items = match app_state.mode {
-            Mode::Quitting => unreachable!(),
-            Mode::Normal => {
+            SimpleMode(Quitting)
+            | OverlayMode {
+                background_mode: Quitting,
+                ..
+            } => unreachable!(),
+            SimpleMode(Normal)
+            | OverlayMode {
+                background_mode: Normal,
+                ..
+            } => {
                 dir_items.sort_by(|a, b| cmp_by_dir_and_path(a, b));
                 dir_items
             }
-            Mode::Search => {
+            TextInputMode {
+                text_input_type: Search,
+                ..
+            } => {
                 struct FileTreeNodeWrapper {
                     item: FileTreeNode,
                     score: i64,
                 }
 
-                let search_string = &app_state.search_mode_state.search_string;
+                let search_string = &app_state.entered_text;
 
                 if search_string.is_empty() {
                     dir_items.sort_by(|a, b| cmp_by_dir_and_path(a, b));
@@ -200,55 +214,61 @@ pub(self) fn inputs(
     app_state: &mut TrackedModifiable<AppState>,
     terminal: &mut CustomTerminal,
 ) {
-    // close the popup on a key press
+    // close the popups and error messages on a key press
     if let Some(_) = app_state.error_popup {
-        app_state.get_mut().close_error_popup();
+        app_state.get_mut().error_popup = None;
     }
     if let Some(_) = app_state.error_message_line {
         app_state.get_mut().error_message_line = None;
     }
 
-    let is_search_mode = app_state.mode == Mode::Search;
+    let is_text_mode = app_state.mode.is_text_mode();
     let digest_result = app_state
         .get_mut()
         .input_reader
-        // if we are in the search mode, consider everything as verb text
+        // if we are in a text, consider everything as verb text
         // (even digits, which would otherwise be considered as modifiers)
-        // that is so that we remember it as normal text, not as commands
-        .digest(k, is_search_mode);
+        // that is so that we can later use it as normal text, not as commands
+        .digest(k, is_text_mode);
+
+    // show errors if we could not process the inputs
     if let InputReaderDigestResult::DigestError(error_message) = digest_result {
         app_state.get_mut().error_message_line = Some(error_message);
+        return;
     }
 
+    // process commands
     let modifier = app_state.input_reader.modifier_key_sequence.parse().ok();
 
     let mode_key_binding = match app_state.mode {
-        Mode::Quitting => unreachable!(), // should have exited the program by now
-        Mode::Normal => &config.normal_mode_key_bindings,
-        Mode::Search => &config.search_mode_key_bindings,
+        SimpleMode(Quitting) => unreachable!(), // should have exited the program by now
+        SimpleMode(Normal) => &config.normal_mode_key_bindings,
+        OverlayMode { .. } | TextInputMode { .. } => &config.text_input_mode_key_bindings,
     };
-    let mode_actions = match app_state.mode {
-        Mode::Quitting => unreachable!(), // should have exited the program by now
-        Mode::Normal => &NORMAL_MODE_ACTION_MAP,
-        Mode::Search => &SEARCH_MODE_ACTION_MAP,
-    };
+
+    let mode_actions = app_state.mode.get_action_map();
+
+    let global_map = ActionMapper::StaticActionMap(&GLOBAL_ACTION_MAP);
 
     let closure_option = app_state
         .input_reader
-        .get_closure_by_key_bindings(mode_key_binding, mode_actions)
+        .get_closure_by_key_bindings(mode_key_binding, &mode_actions)
         .or_else(|| {
             // if we were not successful in finding a closure, look for a global key
             app_state
                 .input_reader
-                .get_closure_by_key_bindings(&config.global_key_bindings, &GLOBAL_ACTION_MAP)
+                .get_closure_by_key_bindings(&config.global_key_bindings, &global_map)
         });
 
     if let Some(closure) = closure_option {
         let action_data = ActionData::new(config, terminal, app_state, modifier, &dir_items);
         let action_result = closure(action_data);
-        // set the error message if could not complete the action
-        if let ActionResult::INVALID(error_message) = action_result {
-            app_state.get_mut().error_message_line = Some(error_message);
+        match action_result {
+            // set the error message if could not complete the action
+            ActionResult::Invalid(error_message) => {
+                app_state.get_mut().error_message_line = Some(error_message);
+            }
+            ActionResult::Valid => {}
         }
 
         // whether it was successful or not, clear the input state
@@ -262,14 +282,16 @@ pub(self) fn inputs(
             &current_sequence.clone(),
             vec![mode_key_binding, &config.global_key_bindings],
         ) {
-            // if it is a search mode, enter the entire sequence
-            if app_state.mode == Mode::Search {
-                app_state.get_mut().copy_input_to_search_string();
+            // if it is a text mode, enter the entire sequence
+            if app_state.mode.is_text_mode() {
+                app_state
+                    .get_mut()
+                    .copy_input_manager_verbs_to_entered_text();
             } else {
-                app_state.get_mut().error_message_line = Some(String::from(format!(
+                app_state.get_mut().error_message_line = Some(format!(
                     "Could not recognise that sequence: {}",
                     current_sequence
-                )));
+                ));
             }
             // clear because that sequence is not valid
             app_state.get_mut().input_reader.clear();
@@ -302,8 +324,11 @@ pub(self) fn draw<B: Backend>(
     };
     let f_size = f.size();
     let bottom_text = app_state.error_message_line.clone().or_else(|| {
-        if app_state.mode == Mode::Search {
-            Some(format!("/ {}", &app_state.search_mode_state.search_string))
+        if let TextInputMode {
+            text_input_type, ..
+        } = &app_state.mode
+        {
+            Some(text_input_type.represent_text_line(&app_state.entered_text))
         } else {
             None
         }
@@ -349,9 +374,13 @@ pub(self) fn draw<B: Backend>(
 
         let block = Block::default().borders(Borders::ALL);
         let selected_file = match app_state.mode {
-            Mode::Quitting => unreachable!(), // should have exited the program by now
-            Mode::Normal => app_state.selected_file.as_ref(),
-            Mode::Search => dir_items.get(0),
+            SimpleMode(Quitting) => unreachable!(), // should have exited the program by now
+            SimpleMode(Normal) => app_state.selected_file.as_ref(),
+            TextInputMode {
+                text_input_type: Search,
+                ..
+            } => dir_items.get(0),
+            _ => None,
         };
 
         let file_text_preview = selected_file.and_then(|f| get_file_text_preview(&f));
@@ -367,11 +396,20 @@ pub(self) fn draw<B: Backend>(
             .borders(Borders::ALL);
 
         let left_widget = match app_state.mode {
-            Mode::Quitting => unreachable!(), // should have exited the program by now
-            Mode::Search => {
-                SearchModeState::get_left_ui(&dir_items, &cursor_styles, &default_styles)
-            }
-            Mode::Normal => NormalModeState::get_left_ui(
+            SimpleMode(Quitting)
+            | OverlayMode {
+                background_mode: Quitting,
+                ..
+            } => unreachable!(), // should have exited the program by now
+            TextInputMode {
+                text_input_type: Search,
+                ..
+            } => get_search_mode_left_ui(&dir_items, &cursor_styles, &default_styles),
+            SimpleMode(Normal)
+            | OverlayMode {
+                background_mode: Normal,
+                ..
+            } => get_normal_mode_left_ui(
                 app_state,
                 &dir_items,
                 config.min_distance_from_cursor_to_bottom,
@@ -382,6 +420,14 @@ pub(self) fn draw<B: Backend>(
         };
 
         f.render_widget(left_widget.block(block), left_chunk);
+
+        // overlays
+        if let OverlayMode { overlay_mode, .. } = &app_state.mode {
+            let widget = overlay_mode.get_popup_text(app_state.entered_text.clone());
+            let area = centered_rect(60, 60, f_size);
+            f.render_widget(Clear, area); //this clears out the background
+            f.render_widget(widget, area);
+        }
 
         // error popup
         if let Some(error_popup) = &app_state.error_popup {
