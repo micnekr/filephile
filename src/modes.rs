@@ -1,3 +1,4 @@
+pub mod delete_mode;
 pub mod normal_mode;
 pub mod search_mode;
 
@@ -17,8 +18,10 @@ use crate::{
     actions::{ActionMapper, ActionResult, NORMAL_MODE_ACTION_MAP},
     compile_time_settings::PREVIEW_TEXT_FETCH_LENGTH,
     directory_tree::FileTreeNode,
-    helper_types::{AppSettings, FindKeyByActionName, TrackedModifiable},
+    helper_types::{AppSettings, FindKeyByActionName},
 };
+
+use self::delete_mode::delete_file_tree_node;
 
 pub enum Mode {
     SimpleMode(SimpleMode),
@@ -101,11 +104,7 @@ impl Mode {
                 ActionMapper::new_dynamic(
                     String::from("select"),
                     Box::new(move |v| {
-                        let result = if file.is_dir() {
-                            fs::remove_dir_all(file.get_path_buf())
-                        } else {
-                            fs::remove_file(file.get_path_buf())
-                        };
+                        let result = delete_file_tree_node(&file);
 
                         // reset the mode
                         v.app_state.get_mut().reset_state();

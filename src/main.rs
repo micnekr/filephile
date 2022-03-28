@@ -404,7 +404,7 @@ pub(self) fn draw<B: Backend>(
             TextInputMode {
                 text_input_type: Search,
                 ..
-            } => get_search_mode_left_ui(&dir_items, &cursor_styles, &default_styles),
+            } => get_search_mode_left_ui(app_state, &dir_items, &cursor_styles, &default_styles),
             SimpleMode(Normal)
             | OverlayMode {
                 background_mode: Normal,

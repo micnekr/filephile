@@ -7,8 +7,8 @@ use std::{
 use crate::{
     directory_tree::FileTreeNode,
     enter_captured_mode, exit_captured_mode,
-    helper_types::{AppSettings, TrackedModifiable},
-    modes::{Mode, OverlayMode, SimpleMode, TextInput},
+    helper_types::{AppSettings, MarkType, TrackedModifiable},
+    modes::{delete_mode::delete_file_tree_node, Mode, OverlayMode, SimpleMode, TextInput},
     AppState, CustomTerminal,
 };
 
@@ -260,6 +260,50 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
             } else {
                 ActionResult::Invalid(String::from("No file selected"))
             }
+        }),
+    );
+    m.insert(
+        String::from("remove_marks"),
+        Box::new(|v| {
+            v.app_state.get_mut().marked_files = vec![];
+            ActionResult::Valid
+        }),
+    );
+    m.insert(
+        String::from("toggle_delete_mark"),
+        Box::new(|v| {
+            if let Some(selected_file) = &v.app_state.selected_file {
+                let index = v
+                    .app_state
+                    .marked_files
+                    .iter()
+                    .position(|f| f == selected_file);
+
+                if let Some(index) = index {
+                    v.app_state.get_mut().marked_files.remove(index);
+                } else {
+                    let selected_file = selected_file.to_owned();
+                    v.app_state.get_mut().marked_files.push(selected_file);
+                }
+
+                ActionResult::Valid
+            } else {
+                ActionResult::Invalid(String::from("No file selected"))
+            }
+        }),
+    );
+    m.insert(
+        String::from("apply_mark_action"),
+        Box::new(|v| {
+            for file in v.app_state.marked_files.iter() {
+                let result = match v.app_state.mark_type {
+                    MarkType::Delete => delete_file_tree_node(file),
+                };
+                if let Err(err) = result {
+                    return ActionResult::Invalid(format!("Error executing the action: {}", err));
+                }
+            }
+            ActionResult::Valid
         }),
     );
     m

@@ -5,6 +5,11 @@ use std::path::{Component, Path, PathBuf};
 use std::fs::read_dir;
 
 use fuzzy_matcher::skim::SkimMatcherV2;
+use tui::style::Style;
+use tui::text::{Span, Spans};
+use tui::widgets::ListItem;
+
+use crate::helper_types::{MarkType, StyleSet};
 
 #[derive(Clone)]
 pub struct FileTreeNode {
@@ -64,6 +69,44 @@ impl FileTreeNode {
         }
     }
 
+    pub fn get_tui_representation(
+        &self,
+        cursor_styles: &StyleSet,
+        default_styles: &StyleSet,
+        is_cursor: bool,
+        marks: &Vec<FileTreeNode>,
+        mark_type: &MarkType,
+    ) -> ListItem {
+        let mark = if marks.contains(self) {
+            Some(mark_type)
+        } else {
+            None
+        };
+
+        let mut spans_vec = match mark {
+            None => vec![],
+            Some(&MarkType::Delete) => vec![
+                Span::styled("D", Style::default().fg(tui::style::Color::Red)),
+                Span::from("|"),
+            ],
+        };
+
+        spans_vec.push(Span::raw(self.get_simple_name().clone()));
+
+        // choose the style based on whether it is a directory or a file and whether it is selected
+        let styles_set = if is_cursor {
+            &cursor_styles
+        } else {
+            &default_styles
+        };
+        let out = ListItem::new(Spans::from(spans_vec)).style(if self.is_dir() {
+            styles_set.dir.clone()
+        } else {
+            styles_set.file.clone()
+        });
+
+        out
+    }
     pub(crate) fn get_path_buf(&self) -> &PathBuf {
         &self.path_buf
     }
@@ -96,6 +139,13 @@ impl FileTreeNode {
         Ok(ret)
     }
 }
+
+impl PartialEq for FileTreeNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.path_buf == other.path_buf
+    }
+}
+
 pub(crate) fn get_file_cursor_index(
     selected_file: &Option<FileTreeNode>,
     items: &Vec<FileTreeNode>,

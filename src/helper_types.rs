@@ -63,6 +63,13 @@ pub struct AppState {
     pub selected_file: Option<FileTreeNode>,
 
     pub entered_text: String,
+
+    pub marked_files: Vec<FileTreeNode>,
+    pub mark_type: MarkType,
+}
+
+pub enum MarkType {
+    Delete,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -143,6 +150,8 @@ impl AppState {
             // dir: Style::default()
             //     .bg(tui::style::Color::DarkGray)
             //     .fg(tui::style::Color::LightBlue),
+            mark_type: MarkType::Delete,
+            marked_files: vec![],
         }
     }
 

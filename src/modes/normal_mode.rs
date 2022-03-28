@@ -48,24 +48,14 @@ pub fn get_normal_mode_left_ui<'a>(
             if el_index < num_to_skip {
                 return None;
             }
-            let out = ListItem::new(el.get_simple_name().clone());
 
-            // apply styles
-
-            // different styles depending on whether it is selected or not and whether it si a dir or not
-            // It is only None if the directory is empty, which would make the code below not be executed. Unwrap is safe.
-            let styles_set = if el_index == file_cursor_highlight_index {
-                &cursor_styles
-            } else {
-                &default_styles
-            };
-            let out = out.style(if el.is_dir() {
-                styles_set.dir.clone()
-            } else {
-                styles_set.file.clone()
-            });
-
-            Some(out)
+            Some(el.get_tui_representation(
+                &cursor_styles,
+                &default_styles,
+                el_index == file_cursor_highlight_index,
+                &app_state.marked_files,
+                &app_state.mark_type,
+            ))
         })
         .collect();
 
