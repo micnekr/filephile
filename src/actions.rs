@@ -1,8 +1,5 @@
 use once_cell::sync::Lazy;
-use std::{
-    collections::BTreeMap,
-    fs::{self, canonicalize},
-};
+use std::{collections::BTreeMap, fs::canonicalize};
 
 use crate::{
     directory_tree::FileTreeNode,
@@ -303,6 +300,30 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                     return ActionResult::Invalid(format!("Error executing the action: {}", err));
                 }
             }
+            ActionResult::Valid
+        }),
+    );
+    m.insert(
+        String::from("create_file"),
+        Box::new(|v| {
+            v.app_state.get_mut().reset_state();
+
+            v.app_state.get_mut().mode = Mode::OverlayMode {
+                background_mode: SimpleMode::Normal, //NOTE: we reset this a couple lines above, so it has to be normal mode. It is also within the normal mode key bindings block.
+                overlay_mode: OverlayMode::CreateFile,
+            };
+            ActionResult::Valid
+        }),
+    );
+    m.insert(
+        String::from("create_directory"),
+        Box::new(|v| {
+            v.app_state.get_mut().reset_state();
+
+            v.app_state.get_mut().mode = Mode::OverlayMode {
+                background_mode: SimpleMode::Normal, //NOTE: we reset this a couple lines above, so it has to be normal mode. It is also within the normal mode key bindings block.
+                overlay_mode: OverlayMode::CreateDirectory,
+            };
             ActionResult::Valid
         }),
     );

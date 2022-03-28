@@ -1,4 +1,4 @@
-use tui::widgets::{List, ListItem};
+use tui::widgets::List;
 
 use crate::{
     directory_tree::FileTreeNode,

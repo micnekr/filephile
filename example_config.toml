@@ -7,17 +7,25 @@ q = "quit"
 ESC = "normal_mode"
 [normal_mode_key_bindings]
 ESC = "remove_marks"
-d = "toggle_delete_mark"
 ENTER = "apply_mark_action"
+d = "toggle_delete_mark"
+
+r = "rename"
+x = "delete_instantly"
+
+i = "create_file"
+I = "create_directory"
+
 h = "left"
 j = "down"
 k = "up"
 l = "right"
+
 G = "go_to_or_go_to_bottom"
 "g g" = "go_to_top"
-r = "rename"
-x = "delete_instantly"
+
 [text_input_mode_key_bindings]
 q = "noop"
+"/" = "noop"
 BACKSPACE = "delete_last_char"
 ENTER = "select"
