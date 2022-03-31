@@ -1,11 +1,14 @@
 min_distance_from_cursor_to_bottom = 4
+command_status_refresh_secs = 0.2
 default_file_editor_command = ["vim", "<FILE>"]
 
 [global_key_bindings]
 q = "quit"
 "/" = "search_mode"
 ESC = "normal_mode"
+":" = "run_command_mode"
 [normal_mode_key_bindings]
+
 ESC = "remove_marks"
 ENTER = "apply_mark_action"
 d = "toggle_delete_mark"

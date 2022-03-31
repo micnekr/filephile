@@ -4,8 +4,10 @@ pub mod search_mode;
 
 use std::{
     cmp::Ordering,
-    fs::{self, File},
+    fs::{self, canonicalize, File},
     io::Read,
+    iter::{once, Once},
+    process::Command,
 };
 
 use tui::{
@@ -15,9 +17,9 @@ use tui::{
 };
 
 use crate::{
-    actions::{ActionMapper, ActionResult, NORMAL_MODE_ACTION_MAP},
+    actions::{ActionMapper, ActionResult, BUFFER_MODE_ACTION_MAP, NORMAL_MODE_ACTION_MAP},
     compile_time_settings::PREVIEW_TEXT_FETCH_LENGTH,
-    directory_tree::FileTreeNode,
+    directory_tree::{run_command_in_foreground, FileTreeNode},
     helper_types::{AppSettings, FindKeyByActionName},
 };
 
@@ -41,6 +43,7 @@ pub enum SimpleMode {
 
 pub enum TextInput {
     Search,
+    RunCommand,
 }
 
 pub enum OverlayMode {
@@ -57,6 +60,36 @@ impl Mode {
             Mode::SimpleMode(SimpleMode::Normal) => {
                 ActionMapper::StaticActionMap(&NORMAL_MODE_ACTION_MAP)
             }
+            Mode::TextInputMode {
+                text_input_type: TextInput::RunCommand,
+            } => ActionMapper::new_dynamic(
+                String::from("select"),
+                Box::new(|v| {
+                    let quoted_command = format!(r#""{}""#, v.app_state.entered_text);
+
+                    let options = if cfg!(target_os = "windows") {
+                        ["cmd", "/C"].iter()
+                    } else {
+                        ["sh", "-c"].iter()
+                    }
+                    .map(ToOwned::to_owned)
+                    .map(ToOwned::to_owned)
+                    .chain(once(quoted_command));
+
+                    run_command_in_foreground(
+                        options,
+                        v.terminal,
+                        v.app_state.current_dir.get_path_buf(),
+                        &v.app_state.interrupt_signal_receiver,
+                        v.config.command_status_refresh_secs,
+                        true,
+                    );
+
+                    v.app_state.get_mut().reset_state();
+
+                    ActionResult::Valid
+                }),
+            ),
             Mode::TextInputMode {
                 text_input_type: TextInput::Search,
             } => ActionMapper::new_dynamic(
@@ -238,6 +271,7 @@ impl TextInput {
     pub fn represent_text_line(&self, text_line: &str) -> String {
         match &self {
             TextInput::Search => format!("/{}", text_line),
+            TextInput::RunCommand => format!(":{}", text_line),
         }
     }
 }

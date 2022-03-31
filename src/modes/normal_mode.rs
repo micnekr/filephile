@@ -5,7 +5,7 @@ use crate::{
     helper_types::{AppState, StyleSet, TrackedModifiable},
 };
 
-pub fn get_normal_mode_left_ui<'a>(
+pub fn get_default_left_ui<'a>(
     app_state: &mut TrackedModifiable<AppState>,
     dir_items: &'a Vec<FileTreeNode>,
     min_distance_from_cursor_to_bottom: usize,

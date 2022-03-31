@@ -3,6 +3,7 @@ use crate::{
     directory_tree::{get_file_cursor_index, FileTreeNode},
     modes::{Mode, SimpleMode},
 };
+use crossbeam_channel::{bounded, Receiver};
 use crossterm::event::KeyCode;
 use std::{
     collections::BTreeMap,
@@ -66,6 +67,8 @@ pub struct AppState {
 
     pub marked_files: Vec<FileTreeNode>,
     pub mark_type: MarkType,
+
+    pub interrupt_signal_receiver: Receiver<()>,
 }
 
 pub enum MarkType {
@@ -80,6 +83,7 @@ pub struct AppSettings {
     pub text_input_mode_key_bindings: StringMap,
     pub min_distance_from_cursor_to_bottom: usize,
     pub default_file_editor_command: Option<Vec<String>>,
+    pub command_status_refresh_secs: f64,
 }
 
 #[derive(Clone)]
@@ -124,14 +128,18 @@ impl AppSettings {
             ))?;
 
         let config: AppSettings = toml::from_str(config.as_str())?;
-        // app_state.global_key_sequence_to_action_mapping = config.global_key_bindings;
         Ok(config)
     }
 }
 
 impl AppState {
-    pub fn new(current_dir: FileTreeNode) -> Self {
-        Self {
+    pub fn new(current_dir: FileTreeNode) -> Result<Self, ctrlc::Error> {
+        let (sender, receiver) = bounded(100);
+        ctrlc::set_handler(move || {
+            let _ = sender.send(());
+        })?;
+
+        Ok(Self {
             mode: Mode::SimpleMode(SimpleMode::Normal),
             current_dir,
             input_reader: InputReader {
@@ -152,7 +160,9 @@ impl AppState {
             //     .fg(tui::style::Color::LightBlue),
             mark_type: MarkType::Delete,
             marked_files: vec![],
-        }
+
+            interrupt_signal_receiver: receiver,
+        })
     }
 
     /// Resets all the data (including prompts, error messages entered text and input manager) and changes into the normal mode

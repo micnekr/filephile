@@ -12,10 +12,11 @@ use std::{
 };
 
 use actions::{ActionData, ActionMapper, ActionResult, GLOBAL_ACTION_MAP};
+use crossbeam_channel::{bounded, Receiver};
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
 use helper_types::{AppSettings, AppState, InputReaderDigestResult, StyleSet};
-use modes::normal_mode::get_normal_mode_left_ui;
+use modes::normal_mode::get_default_left_ui;
 use modes::search_mode::get_search_mode_left_ui;
 use modes::{get_file_text_preview, Mode::*, SimpleMode::*, TextInput::*};
 use tui::backend::{Backend, CrosstermBackend};
@@ -52,7 +53,8 @@ fn main() {
     let backend = tui::backend::CrosstermBackend::new(io::stdout());
     let mut terminal = tui::Terminal::new(backend).expect("Failed to start a terminal");
 
-    let app_state = TrackedModifiable::new(AppState::new(current_dir));
+    let app_state =
+        TrackedModifiable::new(AppState::new(current_dir).expect("Could not create app_state"));
     enter_captured_mode(&mut terminal).expect("Could not capture the terminal");
 
     // create app and run it
@@ -150,6 +152,9 @@ fn run_loop(
             | OverlayMode {
                 background_mode: Normal,
                 ..
+            }
+            | TextInputMode {
+                text_input_type: RunCommand,
             } => {
                 dir_items.sort_by(|a, b| cmp_by_dir_and_path(a, b));
                 dir_items
@@ -409,7 +414,10 @@ pub(self) fn draw<B: Backend>(
             | OverlayMode {
                 background_mode: Normal,
                 ..
-            } => get_normal_mode_left_ui(
+            }
+            | TextInputMode {
+                text_input_type: RunCommand,
+            } => get_default_left_ui(
                 app_state,
                 &dir_items,
                 config.min_distance_from_cursor_to_bottom,

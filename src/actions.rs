@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use std::{collections::BTreeMap, fs::canonicalize};
 
 use crate::{
-    directory_tree::FileTreeNode,
+    directory_tree::{run_command_in_foreground, FileTreeNode},
     enter_captured_mode, exit_captured_mode,
     helper_types::{AppSettings, MarkType, TrackedModifiable},
     modes::{delete_mode::delete_file_tree_node, Mode, OverlayMode, SimpleMode, TextInput},
@@ -97,6 +97,18 @@ pub(crate) static GLOBAL_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
             ActionResult::Valid
         }),
     );
+    m.insert(
+        String::from("run_command_mode"),
+        Box::new(|v| {
+            // reset the mode
+            v.app_state.get_mut().reset_state();
+
+            v.app_state.get_mut().mode = Mode::TextInputMode {
+                text_input_type: TextInput::RunCommand,
+            };
+            ActionResult::Valid
+        }),
+    );
     m
 });
 pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
@@ -148,41 +160,19 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
                     ActionResult::Valid
                 } else {
                     if let Some(file_editor_options) = &v.config.default_file_editor_command{
+                        let file_name = selected_file_tree_node.get_simple_name();
+                        let options = file_editor_options.iter().map(|option|{
+                            option.replace("<FILE>", &file_name)
+                        });
 
-                    // open the file
-                    // move to a different screen
-                    exit_captured_mode(v.terminal).expect("Could not leave terminal capture");
-                    // NOTE: current_dir()'s behaviour is up to the implementation if the path is relative,
-                    // So we need to make it canonical
-                    let relative_path_current_dir = v.app_state.current_dir.get_path_buf();
-                    let panic_message = format!(
-                        r#"Encountered an error while tried to convert "{}" to an absolute path"#,
-                        relative_path_current_dir.as_os_str().to_string_lossy()
-                    );
-                    let absolute_path_current_dir =
-                        canonicalize(relative_path_current_dir).expect(&panic_message);
-                    let mut file_editor_options = file_editor_options.iter();
-                    let mut command = std::process::Command::new(
-                        file_editor_options
-                            .next()
-                            .expect("Found empty arguments for the default file editor"),
-                    );
-                    command.current_dir(absolute_path_current_dir);
+                        run_command_in_foreground(options,
+                                                  v.terminal,
+                                                  v.app_state.current_dir.get_path_buf(),
+                                                  &v.app_state.interrupt_signal_receiver,
+                                                  v.config.command_status_refresh_secs,
+                                                  false);
 
-                    let file_name = selected_file_tree_node.get_simple_name();
-                    for file_editor_option in file_editor_options {
-                        let file_editor_option = file_editor_option.replace("<FILE>", &file_name);
-                        command.arg(file_editor_option);
-                    }
-                    command
-                        .spawn()
-                        .expect("Error: Failed to run an editor")
-                        .wait()
-                        .expect("Error: Editor returned a non-zero status");
-
-                    enter_captured_mode(v.terminal)
-                        .expect("Could not re-enter the terminal capture");
-                    ActionResult::Valid
+                        ActionResult::Valid
                     } else {
                         ActionResult::Invalid(String::from("Can not open the file because the config file does not contain a command to open files"))
                     }
@@ -327,6 +317,11 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
             ActionResult::Valid
         }),
     );
+    m
+});
+
+pub(crate) static BUFFER_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
+    let m: ActionNameMap = BTreeMap::new();
     m
 });
 
