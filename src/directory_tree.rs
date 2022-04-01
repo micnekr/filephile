@@ -1,10 +1,8 @@
 use std::ffi::OsString;
-use std::io::{self, stdin, BufRead, Read, Stdin, Stdout};
+use std::io::{self, stdin, BufRead, Stdout};
 use std::path::{Component, Path, PathBuf};
 
 use std::fs::{canonicalize, read_dir};
-use std::process::Stdio;
-use std::thread::yield_now;
 use std::time::Duration;
 
 use crossbeam_channel::{select, tick, Receiver};

@@ -12,7 +12,6 @@ use std::{
 };
 
 use actions::{ActionData, ActionMapper, ActionResult, GLOBAL_ACTION_MAP};
-use crossbeam_channel::{bounded, Receiver};
 use crossterm::event::KeyCode;
 use crossterm::{event::EnableMouseCapture, terminal::EnterAlternateScreen};
 use helper_types::{AppSettings, AppState, InputReaderDigestResult, StyleSet};
@@ -29,9 +28,17 @@ use crate::directory_tree::FileTreeNode;
 use crate::helper_types::TrackedModifiable;
 use crate::modes::cmp_by_dir_and_path;
 
+use clap::Parser;
+
 pub type CustomTerminal = Terminal<CrosstermBackend<Stdout>>;
 
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+pub struct CommandLineArguments {}
+
 fn main() {
+    let _args = CommandLineArguments::parse();
+
     let config = AppSettings::load_config(vec![
         "../example_config.toml",
         "/usr/share/fphile/global_config.toml",

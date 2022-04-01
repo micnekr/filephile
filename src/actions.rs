@@ -1,9 +1,8 @@
 use once_cell::sync::Lazy;
-use std::{collections::BTreeMap, fs::canonicalize};
+use std::collections::BTreeMap;
 
 use crate::{
     directory_tree::{run_command_in_foreground, FileTreeNode},
-    enter_captured_mode, exit_captured_mode,
     helper_types::{AppSettings, MarkType, TrackedModifiable},
     modes::{delete_mode::delete_file_tree_node, Mode, OverlayMode, SimpleMode, TextInput},
     AppState, CustomTerminal,
@@ -317,11 +316,6 @@ pub(crate) static NORMAL_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
             ActionResult::Valid
         }),
     );
-    m
-});
-
-pub(crate) static BUFFER_MODE_ACTION_MAP: Lazy<ActionNameMap> = Lazy::new(|| {
-    let m: ActionNameMap = BTreeMap::new();
     m
 });
 

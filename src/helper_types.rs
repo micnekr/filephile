@@ -96,6 +96,7 @@ pub enum InputReaderDigestResult {
     DigestSuccessful,
     DigestError(String),
 }
+
 pub struct InputReader {
     pub modifier_key_sequence: String,
     pub verb_key_sequence: Vec<String>,

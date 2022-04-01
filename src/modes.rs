@@ -4,10 +4,9 @@ pub mod search_mode;
 
 use std::{
     cmp::Ordering,
-    fs::{self, canonicalize, File},
+    fs::{self, File},
     io::Read,
-    iter::{once, Once},
-    process::Command,
+    iter::once,
 };
 
 use tui::{
@@ -17,7 +16,7 @@ use tui::{
 };
 
 use crate::{
-    actions::{ActionMapper, ActionResult, BUFFER_MODE_ACTION_MAP, NORMAL_MODE_ACTION_MAP},
+    actions::{ActionMapper, ActionResult, NORMAL_MODE_ACTION_MAP},
     compile_time_settings::PREVIEW_TEXT_FETCH_LENGTH,
     directory_tree::{run_command_in_foreground, FileTreeNode},
     helper_types::{AppSettings, FindKeyByActionName},

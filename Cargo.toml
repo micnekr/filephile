@@ -16,3 +16,4 @@ toml = "0.5"
 fuzzy-matcher = "0.3.7"
 crossbeam-channel = "0.5.4"
 ctrlc = "3.2.1"
+clap = { version = "3.1.8", features = ["derive"] }
