@@ -1,8 +1,9 @@
 use crate::{
-    actions::{ActionClosure, ActionNameMap},
+    actions::{ActionClosure, ActionMapper},
     directory_tree::{get_file_cursor_index, FileTreeNode},
-    modes::Mode,
+    modes::{Mode, SimpleMode},
 };
+use crossbeam_channel::{bounded, Receiver};
 use crossterm::event::KeyCode;
 use std::{
     collections::BTreeMap,
@@ -54,25 +55,6 @@ impl<T> Deref for TrackedModifiable<T> {
     }
 }
 
-pub struct NormalModeState;
-pub struct SearchModeState {
-    pub search_string: String,
-}
-
-impl Default for NormalModeState {
-    fn default() -> Self {
-        Self {}
-    }
-}
-
-impl Default for SearchModeState {
-    fn default() -> Self {
-        Self {
-            search_string: String::new(),
-        }
-    }
-}
-
 pub struct AppState {
     pub mode: Mode,
     pub current_dir: FileTreeNode,
@@ -81,8 +63,16 @@ pub struct AppState {
     pub error_message_line: Option<String>,
     pub selected_file: Option<FileTreeNode>,
 
-    pub normal_mode_state: NormalModeState,
-    pub search_mode_state: SearchModeState,
+    pub entered_text: String,
+
+    pub marked_files: Vec<FileTreeNode>,
+    pub mark_type: MarkType,
+
+    pub interrupt_signal_receiver: Receiver<()>,
+}
+
+pub enum MarkType {
+    Delete,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -90,9 +80,10 @@ pub struct AppSettings {
     pub render_timeout: Option<u64>,
     pub global_key_bindings: StringMap,
     pub normal_mode_key_bindings: StringMap,
-    pub search_mode_key_bindings: StringMap,
+    pub text_input_mode_key_bindings: StringMap,
     pub min_distance_from_cursor_to_bottom: usize,
-    pub default_file_editor_command: Vec<String>,
+    pub default_file_editor_command: Option<Vec<String>>,
+    pub command_status_refresh_secs: f64,
 }
 
 #[derive(Clone)]
@@ -105,6 +96,7 @@ pub enum InputReaderDigestResult {
     DigestSuccessful,
     DigestError(String),
 }
+
 pub struct InputReader {
     pub modifier_key_sequence: String,
     pub verb_key_sequence: Vec<String>,
@@ -113,6 +105,17 @@ pub struct InputReader {
 pub struct ErrorPopup {
     pub title: String,
     pub desc: String,
+}
+
+pub trait FindKeyByActionName {
+    fn find_key_by_action_name<'a>(&'a self, action_name: &'a str) -> Option<&'a str>;
+}
+impl FindKeyByActionName for StringMap {
+    fn find_key_by_action_name<'a>(&'a self, action_name: &'a str) -> Option<&'a str> {
+        self.iter()
+            .find(|(_, v)| *v == action_name)
+            .map(|(k, _)| k.as_str())
+    }
 }
 
 impl AppSettings {
@@ -126,15 +129,19 @@ impl AppSettings {
             ))?;
 
         let config: AppSettings = toml::from_str(config.as_str())?;
-        // app_state.global_key_sequence_to_action_mapping = config.global_key_bindings;
         Ok(config)
     }
 }
 
 impl AppState {
-    pub fn new(current_dir: FileTreeNode) -> Self {
-        Self {
-            mode: Mode::Normal,
+    pub fn new(current_dir: FileTreeNode) -> Result<Self, ctrlc::Error> {
+        let (sender, receiver) = bounded(100);
+        ctrlc::set_handler(move || {
+            let _ = sender.send(());
+        })?;
+
+        Ok(Self {
+            mode: Mode::SimpleMode(SimpleMode::Normal),
             current_dir,
             input_reader: InputReader {
                 modifier_key_sequence: String::new(),
@@ -143,8 +150,8 @@ impl AppState {
             error_popup: None,
             error_message_line: None,
             selected_file: None,
-            normal_mode_state: NormalModeState::default(),
-            search_mode_state: SearchModeState::default()
+
+            entered_text: String::new(),
             // NOTE: this would look good for multi-selection, maybe we should use it in the future
             // file: Style::default()
             //     .bg(tui::style::Color::DarkGray)
@@ -152,11 +159,25 @@ impl AppState {
             // dir: Style::default()
             //     .bg(tui::style::Color::DarkGray)
             //     .fg(tui::style::Color::LightBlue),
-        }
+            mark_type: MarkType::Delete,
+            marked_files: vec![],
+
+            interrupt_signal_receiver: receiver,
+        })
     }
-    pub fn copy_input_to_search_string(&mut self) {
-        let input_string = &self.input_reader.verb_key_sequence.concat();
-        self.search_mode_state.search_string.push_str(input_string);
+
+    /// Resets all the data (including prompts, error messages entered text and input manager) and changes into the normal mode
+    pub fn reset_state(&mut self) {
+        self.error_message_line = None;
+        self.error_popup = None;
+
+        self.entered_text = String::new();
+
+        self.mode = Mode::SimpleMode(SimpleMode::Normal);
+    }
+    pub fn copy_input_manager_verbs_to_entered_text(&mut self) {
+        let input_verbs_string = &self.input_reader.verb_key_sequence.concat();
+        self.entered_text.push_str(input_verbs_string);
     }
     pub fn set_file_cursor_highlight_index<F: FnOnce(usize, usize) -> usize>(
         &mut self,
@@ -177,9 +198,6 @@ impl AppState {
         self.selected_file = dir_items
             .get(file_cursor_highlight_index)
             .map(|e| e.to_owned());
-    }
-    pub fn close_error_popup(&mut self) {
-        self.error_popup = None;
     }
     pub fn error_popup(&mut self, title: String, body: String) {
         self.error_popup = Some(ErrorPopup::new(title, body));
@@ -232,12 +250,12 @@ impl InputReader {
     pub fn get_closure_by_key_bindings<'a>(
         &self,
         key_to_action_mapping: &'a BTreeMap<String, String>,
-        action_to_closure_mapping: &'a ActionNameMap,
+        action_to_closure_mapping: &'a ActionMapper,
     ) -> Option<&'a ActionClosure> {
         if let Some(action_name) =
             key_to_action_mapping.get(&self.get_human_friendly_verb_key_sequence())
         {
-            return action_to_closure_mapping.get(action_name);
+            return action_to_closure_mapping.find_action(action_name);
         }
         return None;
     }
