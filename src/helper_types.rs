@@ -174,6 +174,7 @@ impl AppState {
         self.entered_text = String::new();
 
         self.mode = Mode::SimpleMode(SimpleMode::Normal);
+        self.marked_files = vec![];
     }
     pub fn copy_input_manager_verbs_to_entered_text(&mut self) {
         let input_verbs_string = &self.input_reader.verb_key_sequence.concat();
