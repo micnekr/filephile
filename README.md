@@ -1,5 +1,7 @@
 # Filephile
 
+A customisable command-line file manager written in rust
+
 ## Installation
 
 ### Windows
